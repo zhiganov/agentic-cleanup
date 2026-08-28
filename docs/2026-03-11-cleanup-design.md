@@ -2,7 +2,7 @@
 
 Slash command that scans a developer workstation for reclaimable disk space, reports findings in a categorized table, lets the user select which categories to clean, and executes the cleanup.
 
-Published as `zhiganov/claude-cleanup`, installable via `npx skillsadd zhiganov/claude-cleanup`.
+Published as `zhiganov/agentic-cleanup`, with installers for Claude Code and OpenCode V2.
 
 ## Invocation
 
@@ -178,16 +178,18 @@ Failed: Docker (daemon not running)
 ## Repo Structure
 
 ```
-claude-cleanup/
-  .claude/
-    commands/
-      cleanup.md          # the slash command
+agentic-cleanup/
+  cleanup.md              # runtime-neutral slash command
+  install.sh
+  install.ps1
+  install-manifest.sha256
+  scripts/                # Windows helpers and structured contracts
   README.md
   docs/
     2026-03-11-cleanup-design.md   # this file
 ```
 
-Minimal repo — just the command file and docs. No runtime dependencies.
+The command remains the core product. Installers publish it to Claude Code and OpenCode V2 while sharing one verified helper/contract payload.
 
 ## Safety
 

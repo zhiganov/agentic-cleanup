@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/zhiganov/claude-config/scripts/cleanup/schemas/scan.schema.json",
+  "$id": "https://raw.githubusercontent.com/zhiganov/agentic-cleanup/master/scripts/cleanup/schemas/scan.schema.json",
   "title": "Cleanup Scan",
   "description": "Immutable evidence and candidate inventory produced by a cleanup scan. This document never authorizes deletion.",
   "type": "object",

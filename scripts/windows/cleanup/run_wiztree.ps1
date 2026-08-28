@@ -6,7 +6,7 @@
 # Non-elevated /admin=0 silently falls back to a per-file walk that is as slow as
 # Get-ChildItem and TIMES OUT on a large or near-full drive (Windows, 2026-06-23).
 # So always elevate -- one UAC prompt. Pass -OutCsv as a Windows path
-# (cygpath -w of the /tmp target), e.g. %TEMP%\claude-cleanup\wiztree.csv.
+# (cygpath -w of the /tmp target), e.g. %TEMP%\agentic-cleanup\wiztree.csv.
 param(
   [Parameter(Mandatory = $true)][string]$WizTree,
   [Parameter(Mandatory = $true)][string]$OutCsv,

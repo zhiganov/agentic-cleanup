@@ -16,12 +16,12 @@ function Get-NormalizedDigest([string]$Path) {
 }
 
 function Resolve-Source([string]$InstallPath) {
-    if ($InstallPath -eq 'commands/cleanup.md') { return Join-Path $repoRoot '.claude\commands\cleanup.md' }
-    if ($InstallPath.StartsWith('cleanup-scripts/')) {
-        return Join-Path $repoRoot ('scripts\windows\cleanup\' + $InstallPath.Substring('cleanup-scripts/'.Length))
+    if ($InstallPath -eq 'cleanup.md') { return Join-Path $repoRoot 'cleanup.md' }
+    if ($InstallPath.StartsWith('scripts/windows/cleanup/')) {
+        return Join-Path $repoRoot ($InstallPath -replace '/', '\')
     }
-    if ($InstallPath.StartsWith('cleanup-contracts/')) {
-        return Join-Path $repoRoot ('scripts\cleanup\' + $InstallPath.Substring('cleanup-contracts/'.Length))
+    if ($InstallPath.StartsWith('scripts/cleanup/')) {
+        return Join-Path $repoRoot ($InstallPath -replace '/', '\')
     }
     throw "Unknown install path: $InstallPath"
 }
@@ -32,6 +32,7 @@ $entries = foreach ($line in Get-Content -LiteralPath $manifestPath) {
 }
 
 Assert-True (@($entries).Count -eq 24) 'Install manifest lists every command, helper, contract, schema, and policy file'
+Assert-True (@($entries.installPath | Sort-Object -Unique).Count -eq 24) 'Install manifest inventory has no duplicate paths'
 foreach ($entry in $entries) {
     Assert-True (Test-Path -LiteralPath $entry.sourcePath) "Manifest source exists: $($entry.installPath)"
     Assert-True ((Get-NormalizedDigest $entry.sourcePath) -eq $entry.digest) "Manifest digest matches: $($entry.installPath)"
@@ -47,11 +48,22 @@ try {
     }
     $allMatch = @($entries | Where-Object { (Get-FileHash -LiteralPath (Join-Path $stage ($_.installPath -replace '/', '\')) -Algorithm SHA256).Hash.ToLowerInvariant() -ne $_.digest }).Count -eq 0
     Assert-True $allMatch 'A complete staged installation matches the release manifest'
-    Add-Content -LiteralPath (Join-Path $stage 'cleanup-scripts\scan.ps1') -Value 'interrupted-copy'
-    $tamperDetected = (Get-FileHash -LiteralPath (Join-Path $stage 'cleanup-scripts\scan.ps1') -Algorithm SHA256).Hash.ToLowerInvariant() -ne ($entries | Where-Object installPath -eq 'cleanup-scripts/scan.ps1').digest
+    Add-Content -LiteralPath (Join-Path $stage 'scripts\windows\cleanup\scan.ps1') -Value 'interrupted-copy'
+    $tamperDetected = (Get-FileHash -LiteralPath (Join-Path $stage 'scripts\windows\cleanup\scan.ps1') -Algorithm SHA256).Hash.ToLowerInvariant() -ne ($entries | Where-Object installPath -eq 'scripts/windows/cleanup/scan.ps1').digest
     Assert-True $tamperDetected 'An interrupted or mixed helper set fails manifest verification'
+
+    $partialEntries = @($entries | Select-Object -Skip 1)
+    Assert-True ($partialEntries.Count -ne $entries.Count) 'A truncated manifest fails the complete-inventory requirement'
 } finally {
     Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+$shellInstaller = [IO.File]::ReadAllText((Join-Path $repoRoot 'install.sh'))
+$powerShellInstaller = [IO.File]::ReadAllText((Join-Path $repoRoot 'install.ps1'))
+foreach ($installer in @($shellInstaller, $powerShellInstaller)) {
+    Assert-True ($installer.Contains('zhiganov/agentic-cleanup')) 'Installer fetches the renamed repository'
+    Assert-True ($installer.Contains('opencode')) 'Installer publishes an OpenCode command copy'
+    Assert-True ($installer.Contains('agentic-cleanup')) 'Installer publishes an agent-neutral shared payload'
 }
 
 Write-Output 'All cleanup install-manifest tests passed.'

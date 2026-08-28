@@ -41,5 +41,5 @@ inline `Remove-Item`/`rmdir` on a protected path. The launcher carries no delete
 so the deletes (inside the file) pass. The worker is named `Scrub`, never `Del`/`RD`/`RM`
 (those are `Remove-Item` aliases that would shadow a same-named function).
 
-Canonical skill source is also published at `github.com/zhiganov/claude-cleanup`
+Canonical skill source is also published at `github.com/zhiganov/agentic-cleanup`
 (`cleanup-gist.md`); keep that copy in sync when these change.

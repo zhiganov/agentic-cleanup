@@ -1,61 +1,80 @@
 $ErrorActionPreference = 'Stop'
 
-$RepoUrl = "https://raw.githubusercontent.com/zhiganov/claude-cleanup/master"
-$ClaudeDir = "$env:USERPROFILE\.claude"
+$RepoUrl = if ($env:AGENTIC_CLEANUP_REPO_URL) { $env:AGENTIC_CLEANUP_REPO_URL } else { 'https://raw.githubusercontent.com/zhiganov/agentic-cleanup/master' }
+$ClaudeDir = if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $HOME '.claude' }
+$configHome = if ($env:XDG_CONFIG_HOME) { $env:XDG_CONFIG_HOME } else { Join-Path $HOME '.config' }
+$OpenCodeDir = Join-Path $configHome 'opencode'
+$dataHome = if ($env:XDG_DATA_HOME) { $env:XDG_DATA_HOME } else { Join-Path $HOME '.local\share' }
+$DataDir = if ($env:AGENTIC_CLEANUP_DATA_DIR) { $env:AGENTIC_CLEANUP_DATA_DIR } else { Join-Path $dataHome 'agentic-cleanup' }
 
-Write-Host "Installing claude-cleanup..."
+Write-Host 'Installing agentic-cleanup...'
 
-$stage = Join-Path $ClaudeDir ('.cleanup-install-' + [guid]::NewGuid())
-New-Item -ItemType Directory -Force -Path "$stage\commands", "$stage\cleanup-scripts", "$stage\cleanup-contracts\schemas", "$stage\cleanup-contracts\policies" | Out-Null
+$stage = Join-Path ([IO.Path]::GetTempPath()) ('agentic-cleanup-install-' + [guid]::NewGuid())
+New-Item -ItemType Directory -Force -Path "$stage\scripts\windows\cleanup", "$stage\scripts\cleanup\schemas", "$stage\scripts\cleanup\policies" | Out-Null
 try {
-  Invoke-WebRequest -Uri "$RepoUrl/.claude/commands/cleanup.md" -OutFile "$stage\commands\cleanup.md"
+  Invoke-WebRequest -Uri "$RepoUrl/cleanup.md" -OutFile "$stage\cleanup.md"
 
-# Windows helper scripts used by the scan/delete steps. The command resolves
-# these from ~/.claude/cleanup-scripts/ when present.
-$scripts = @('wt_lookup.py','find_targets.py','assert_list.py','live_paths.ps1','diskspace.ps1','run_wiztree.ps1','squirrel.ps1',
-             'appdata_orphans.ps1','winsdk.ps1','vs_orphans.ps1','scrub.ps1','scan.ps1','execute-plan.ps1','README.md')
-foreach ($f in $scripts) {
-  Invoke-WebRequest -Uri "$RepoUrl/scripts/windows/cleanup/$f" -OutFile "$stage\cleanup-scripts\$f"
-}
+  $scripts = @('wt_lookup.py','find_targets.py','assert_list.py','live_paths.ps1','diskspace.ps1','run_wiztree.ps1','squirrel.ps1',
+               'appdata_orphans.ps1','winsdk.ps1','vs_orphans.ps1','scrub.ps1','scan.ps1','execute-plan.ps1','README.md')
+  foreach ($f in $scripts) {
+    Invoke-WebRequest -Uri "$RepoUrl/scripts/windows/cleanup/$f" -OutFile "$stage\scripts\windows\cleanup\$f"
+  }
 
-# Structured cleanup contracts. PowerShell 7 is required only for the opt-in
-# --structured-preview path while category migration is in progress.
-$contractDir = "$stage\cleanup-contracts"
-$contracts = @('Cleanup.Contracts.psm1','build-plan.ps1','validate-plan.ps1','render-scan.ps1','README.md',
-               'schemas/scan.schema.json','schemas/plan.schema.json','schemas/result.schema.json',
-               'policies/windows.v1.json')
-foreach ($f in $contracts) {
-  $destination = Join-Path $contractDir ($f -replace '/', '\')
-  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
-  Invoke-WebRequest -Uri "$RepoUrl/scripts/cleanup/$f" -OutFile $destination
-}
-  Invoke-WebRequest -Uri "$RepoUrl/install-manifest.sha256" -OutFile "$stage\cleanup-manifest.sha256"
-  foreach ($line in Get-Content -LiteralPath "$stage\cleanup-manifest.sha256") {
+  $contracts = @('Cleanup.Contracts.psm1','build-plan.ps1','validate-plan.ps1','render-scan.ps1','README.md',
+                 'schemas/scan.schema.json','schemas/plan.schema.json','schemas/result.schema.json','policies/windows.v1.json')
+  foreach ($f in $contracts) {
+    $destination = Join-Path "$stage\scripts\cleanup" ($f -replace '/', '\')
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
+    Invoke-WebRequest -Uri "$RepoUrl/scripts/cleanup/$f" -OutFile $destination
+  }
+
+  Invoke-WebRequest -Uri "$RepoUrl/install-manifest.sha256" -OutFile "$stage\install-manifest.sha256"
+  $expectedPaths = @('cleanup.md') + @($scripts | ForEach-Object { "scripts/windows/cleanup/$_" }) + @($contracts | ForEach-Object { "scripts/cleanup/$_" })
+  $manifestLines = @(Get-Content -LiteralPath "$stage\install-manifest.sha256")
+  if ($manifestLines.Count -ne $expectedPaths.Count) { throw 'Cleanup install manifest inventory is incomplete' }
+  $seenPaths = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+  foreach ($line in $manifestLines) {
     if ($line -notmatch '^([0-9a-f]{64})  (.+)$') { throw "Invalid cleanup manifest line: $line" }
-    $file = Join-Path $stage ($Matches[2] -replace '/', '\')
+    $installPath = $Matches[2]
+    if ($expectedPaths -cnotcontains $installPath -or -not $seenPaths.Add($installPath)) { throw "Invalid cleanup manifest inventory path: $installPath" }
+    $file = Join-Path $stage ($installPath -replace '/', '\')
     if (-not (Test-Path -LiteralPath $file) -or (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant() -ne $Matches[1]) {
-      throw "Cleanup install manifest mismatch: $($Matches[2])"
+      throw "Cleanup install manifest mismatch: $installPath"
     }
   }
 
-  # Install the command first and the verified manifest last. The new command
-  # refuses to run if this copy sequence is interrupted.
-  foreach ($target in @("$ClaudeDir\cleanup-scripts", "$ClaudeDir\cleanup-contracts")) {
+  $claudeCommand = Join-Path $ClaudeDir 'commands\cleanup.md'
+  $openCodeCommand = Join-Path $OpenCodeDir 'commands\cleanup.md'
+  $protectedTargets = @(
+    $DataDir, "$DataDir\cleanup.md", "$DataDir\install-manifest.sha256",
+    "$DataDir\scripts", "$DataDir\scripts\windows", "$DataDir\scripts\windows\cleanup",
+    "$DataDir\scripts\cleanup", "$DataDir\scripts\cleanup\schemas", "$DataDir\scripts\cleanup\policies",
+    $ClaudeDir, (Split-Path -Parent $claudeCommand), $claudeCommand,
+    $OpenCodeDir, (Split-Path -Parent $openCodeCommand), $openCodeCommand
+  )
+  foreach ($target in $protectedTargets) {
     if ((Test-Path -LiteralPath $target) -and ((Get-Item -LiteralPath $target -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
       throw "Refusing to overwrite cleanup install reparse point: $target"
     }
   }
-  New-Item -ItemType Directory -Force -Path "$ClaudeDir\commands", "$ClaudeDir\cleanup-scripts", "$ClaudeDir\cleanup-contracts" | Out-Null
-  Copy-Item -LiteralPath "$stage\commands\cleanup.md" -Destination "$ClaudeDir\commands\cleanup.md" -Force
-  Copy-Item -Path "$stage\cleanup-scripts\*" -Destination "$ClaudeDir\cleanup-scripts" -Recurse -Force
-  Copy-Item -Path "$stage\cleanup-contracts\*" -Destination "$ClaudeDir\cleanup-contracts" -Recurse -Force
-  Copy-Item -LiteralPath "$stage\cleanup-manifest.sha256" -Destination "$ClaudeDir\cleanup-manifest.sha256" -Force
+
+  New-Item -ItemType Directory -Force -Path "$DataDir\scripts\windows\cleanup", "$DataDir\scripts\cleanup", (Split-Path -Parent $claudeCommand), (Split-Path -Parent $openCodeCommand) | Out-Null
+  Copy-Item -LiteralPath "$stage\cleanup.md" -Destination "$DataDir\cleanup.md" -Force
+  Copy-Item -Path "$stage\scripts\windows\cleanup\*" -Destination "$DataDir\scripts\windows\cleanup" -Recurse -Force
+  Copy-Item -Path "$stage\scripts\cleanup\*" -Destination "$DataDir\scripts\cleanup" -Recurse -Force
+  Copy-Item -LiteralPath "$stage\cleanup.md" -Destination $claudeCommand -Force
+  Copy-Item -LiteralPath "$stage\cleanup.md" -Destination $openCodeCommand -Force
+  Copy-Item -LiteralPath "$stage\install-manifest.sha256" -Destination "$DataDir\install-manifest.sha256" -Force
+
+  $payloadHash = (Get-FileHash -LiteralPath "$DataDir\cleanup.md" -Algorithm SHA256).Hash
+  if ((Get-FileHash -LiteralPath $claudeCommand -Algorithm SHA256).Hash -ne $payloadHash -or
+      (Get-FileHash -LiteralPath $openCodeCommand -Algorithm SHA256).Hash -ne $payloadHash) {
+    throw 'Runtime command copy does not match the verified shared payload'
+  }
 } finally {
   Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
 }
-Write-Host "Installed cleanup.md -> ~/.claude/commands/"
-Write-Host "Installed Windows helper scripts -> ~/.claude/cleanup-scripts/"
-Write-Host "Installed structured contracts -> ~/.claude/cleanup-contracts/"
 
-Write-Host ""
-Write-Host "Installation complete! Use /cleanup in Claude Code to get started."
+Write-Host "Installed /cleanup for Claude Code -> $claudeCommand"
+Write-Host "Installed /cleanup for OpenCode V2 -> $openCodeCommand"
+Write-Host "Installed verified shared payload -> $DataDir"

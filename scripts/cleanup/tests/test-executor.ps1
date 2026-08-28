@@ -26,7 +26,7 @@ try {
     $temp = Join-Path $root 'temp'
     $configMsi = Join-Path $root 'Config.Msi'
     $windowsOld = Join-Path $root 'Windows.old'
-    $scratch = Join-Path $temp 'claude-cleanup'
+    $scratch = Join-Path $temp 'agentic-cleanup'
     $scan = Join-Path $scratch 'scan.json'
     $plan = Join-Path $scratch 'plan.json'
     $resultPath = Join-Path $scratch 'result.json'
@@ -34,7 +34,8 @@ try {
     $env:TEMP = $temp
     Add-TestFile (Join-Path $temp 'ordinary\cache.bin')
     Add-TestFile (Join-Path $temp 'claude\live.bin')
-    Add-TestFile (Join-Path $temp 'claude-cleanup\scan.bin')
+    Add-TestFile (Join-Path $temp 'agentic-cleanup\scan.bin')
+    Add-TestFile (Join-Path $temp 'claude-cleanup\legacy-scan.bin')
     Add-TestFile (Join-Path $local 'npm-cache\_cacache\cache.bin')
     Add-TestFile (Join-Path $local 'npm-cache\_npx\server.bin')
     $artifact = Join-Path $workspace 'project-a\.next\cache.bin'
@@ -114,7 +115,8 @@ exit 1
     Assert-True (-not (Test-Path -LiteralPath (Split-Path -Parent $artifact))) 'Executor removes a validated inactive build artifact'
     Assert-True (Test-Path -LiteralPath $lockedPath) 'Executor does not retry or kill the holder of a locked temp file'
     Assert-True (Test-Path -LiteralPath (Join-Path $temp 'claude\live.bin')) 'Executor preserves runtime scratch exclusion'
-    Assert-True (Test-Path -LiteralPath (Join-Path $temp 'claude-cleanup\scan.bin')) 'Executor preserves cleanup scratch exclusion'
+    Assert-True (Test-Path -LiteralPath (Join-Path $temp 'agentic-cleanup\scan.bin')) 'Executor preserves cleanup scratch exclusion'
+    Assert-True (Test-Path -LiteralPath (Join-Path $temp 'claude-cleanup\legacy-scan.bin')) 'Executor preserves pre-rename cleanup scratch exclusion'
     Assert-True (Test-Path -LiteralPath $scan) 'Executor accepts scan and plan evidence inside protected cleanup scratch'
     Assert-True (@($result.operations | Where-Object status -eq 'removed').Count -eq 1) 'Result records removed build artifact'
     Assert-True (@($result.operations | Where-Object status -eq 'locked-skipped').Count -eq 1) 'Expected locked temp content is not reported as a hard failure'

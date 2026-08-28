@@ -33,7 +33,8 @@ try {
     Add-TestFile (Join-Path $local 'npm-cache\_npx\server.bin')
     Add-TestFile (Join-Path $temp 'ordinary\cache.bin')
     Add-TestFile (Join-Path $temp 'claude\live.bin')
-    Add-TestFile (Join-Path $temp 'claude-cleanup\scan.bin')
+    Add-TestFile (Join-Path $temp 'agentic-cleanup\scan.bin')
+    Add-TestFile (Join-Path $temp 'claude-cleanup\legacy-scan.bin')
     $artifactFile = Join-Path $workspace 'project-a\.next\cache.bin'
     Add-TestFile $artifactFile
     (Get-Item -LiteralPath $artifactFile).LastWriteTimeUtc = [DateTime]::UtcNow.AddDays(-2)
@@ -48,12 +49,29 @@ try {
     $scan = Get-Content -LiteralPath $output -Raw | ConvertFrom-Json -Depth 100
     Assert-True (@($scan.categories).Count -eq 5) 'Scanner emits all five representative categories'
     Assert-True (($scan.categories | Where-Object categoryId -eq 'package-manager-caches').sizes.protectedBytes -gt 0) 'Scanner separates protected npm _npx bytes'
-    Assert-True (($scan.categories | Where-Object categoryId -eq 'windows-temp-files').sizes.protectedBytes -gt 0) 'Scanner excludes Claude and cleanup scratch from reclaimable temp bytes'
+    Assert-True (($scan.categories | Where-Object categoryId -eq 'windows-temp-files').sizes.protectedBytes -ge 384) 'Scanner excludes current, legacy, and runtime scratch from reclaimable temp bytes'
     Assert-True (($scan.categories | Where-Object categoryId -eq 'build-artifacts').items[0].disposition -eq 'eligible') 'Scanner emits an inactive, cold build artifact'
     Assert-True (($scan.categories | Where-Object categoryId -eq 'config-msi-leftovers').items[0].operationPreview.elevated) 'Scanner marks Config.Msi as elevated'
     Assert-True (($scan.categories | Where-Object categoryId -eq 'windows-old').items[0].disposition -eq 'manual-only') 'Scanner keeps Windows.old manual-only'
     Assert-True ($scan.sessionCensus.status -eq 'unsupported') 'Fixture scan records an explicitly skipped session census'
     Assert-True ($scan.helpers.provenance.status -eq 'matched-published') 'Helper provenance ignores LF versus CRLF checkout differences'
+
+    $openCodeWorkspace = Join-Path $root 'opencode-workspace'
+    $openCodeNested = Join-Path $openCodeWorkspace 'packages\nested'
+    $openCodeOutput = Join-Path $root 'opencode-scan.json'
+    [IO.Directory]::CreateDirectory($openCodeNested) | Out-Null
+    [IO.File]::WriteAllText((Join-Path $openCodeWorkspace 'opencode.jsonc'), '{}', [Text.UTF8Encoding]::new($false))
+    Push-Location $openCodeNested
+    try {
+        & $scanner -OutputPath $openCodeOutput -HomePath $HOME `
+            -HelpersDirectory $helpers -LocalAppDataPath $local -NpmCachePath (Join-Path $local 'npm-cache') `
+            -TempPath $temp -ConfigMsiPath $configMsi -WindowsOldPath $windowsOld -SkipSessionCensus | Out-Null
+    } finally {
+        Pop-Location
+    }
+    $openCodeScan = Get-Content -LiteralPath $openCodeOutput -Raw | ConvertFrom-Json -Depth 100
+    Assert-True ($openCodeScan.workspace.root -eq [IO.Path]::GetFullPath($openCodeWorkspace)) 'Scanner resolves a nested OpenCode invocation to its opencode.jsonc project root'
+
     try {
         & $scanner -OutputPath $output -WorkspaceRoot $workspace -HomePath (Join-Path $root 'home') `
             -HelpersDirectory $helpers -PublishedHelpersDirectory $publishedHelpers `
