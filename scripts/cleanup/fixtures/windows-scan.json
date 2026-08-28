@@ -1,0 +1,316 @@
+{
+  "schemaVersion": "1.0",
+  "runId": "9a1fd33e-7c81-4fce-92bd-e72847546be1",
+  "createdAt": "2026-08-22T13:00:00Z",
+  "arguments": [],
+  "platform": {
+    "family": "windows",
+    "uname": "MINGW64_NT-10.0-26200",
+    "distribution": null
+  },
+  "workspace": {
+    "cwd": "C:\\Users\\example\\workspace",
+    "root": "C:\\Users\\example\\workspace",
+    "scoped": true,
+    "resolution": "outermost-marker-excluding-home",
+    "nearerMarker": null
+  },
+  "helpers": {
+    "directory": "C:\\Users\\example\\workspace\\claude-config\\scripts\\windows\\cleanup",
+    "provenance": {
+      "status": "matched-published",
+      "canonicalDirectory": "C:\\Users\\example\\workspace\\claude-config\\scripts\\windows\\cleanup",
+      "publishedDirectory": "C:\\Users\\example\\workspace\\claude-cleanup\\scripts\\windows\\cleanup",
+      "digestAlgorithm": "sha256",
+      "canonicalDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "publishedDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  },
+  "diskBaseline": {
+    "capturedAt": "2026-08-22T12:59:55Z",
+    "freeBytes": 3221225472,
+    "totalBytes": 128849018880
+  },
+  "measurement": {
+    "source": "mixed",
+    "capturedAt": "2026-08-22T13:00:00Z",
+    "snapshotPath": "C:\\Users\\example\\AppData\\Local\\Temp\\claude-cleanup\\wiztree.csv",
+    "snapshotBytes": 255852544
+  },
+  "sessionCensus": {
+    "status": "complete",
+    "capturedAt": "2026-08-22T12:59:57Z",
+    "sessions": [
+      {
+        "runtime": "opencode",
+        "pid": 17100,
+        "sessionId": "ses_example",
+        "serverCount": 10
+      }
+    ],
+    "limitations": []
+  },
+  "categories": [
+    {
+      "categoryId": "package-manager-caches",
+      "label": "Package Manager Caches",
+      "status": "found",
+      "statusReason": null,
+      "sizes": {
+        "logicalBytes": 9100000000,
+        "estimatedReclaimableBytes": 8500000000,
+        "protectedBytes": 600000000
+      },
+      "items": [
+        {
+          "itemId": "npm-cache",
+          "displayName": "npm cache",
+          "disposition": "eligible",
+          "sizes": {
+            "logicalBytes": 9100000000,
+            "estimatedReclaimableBytes": 8500000000,
+            "protectedBytes": 600000000
+          },
+          "resources": [
+            {
+              "resourceId": "npm-cacache",
+              "kind": "directory",
+              "canonicalPath": "C:\\Users\\example\\AppData\\Local\\npm-cache\\_cacache",
+              "logicalBytes": 8500000000,
+              "protected": false
+            },
+            {
+              "resourceId": "npm-npx",
+              "kind": "directory",
+              "canonicalPath": "C:\\Users\\example\\AppData\\Local\\npm-cache\\_npx",
+              "logicalBytes": 600000000,
+              "protected": true
+            }
+          ],
+          "operationPreview": {
+            "policyId": "npm-cache-clean",
+            "mode": "tool-command",
+            "elevated": false
+          },
+          "evidence": [
+            {
+              "kind": "tool-installed",
+              "source": "command-v",
+              "value": true
+            }
+          ],
+          "riskFlags": ["protected-npx"],
+          "requiresPerItemConfirmation": false,
+          "affectedApplications": []
+        }
+      ],
+      "warnings": [
+        {
+          "code": "npm-npx-protected",
+          "message": "Protected _npx content is excluded from estimated reclaimable bytes.",
+          "categoryId": "package-manager-caches",
+          "itemId": "npm-cache"
+        }
+      ]
+    },
+    {
+      "categoryId": "windows-temp-files",
+      "label": "Windows Temp Files",
+      "status": "found",
+      "statusReason": null,
+      "sizes": {
+        "logicalBytes": 800000000,
+        "estimatedReclaimableBytes": 780000000,
+        "protectedBytes": 20000000
+      },
+      "items": [
+        {
+          "itemId": "user-temp",
+          "displayName": "User temp",
+          "disposition": "eligible",
+          "sizes": {
+            "logicalBytes": 800000000,
+            "estimatedReclaimableBytes": 780000000,
+            "protectedBytes": 20000000
+          },
+          "resources": [
+            {
+              "resourceId": "user-temp-root",
+              "kind": "directory",
+              "canonicalPath": "C:\\Users\\example\\AppData\\Local\\Temp",
+              "logicalBytes": 800000000,
+              "protected": false
+            }
+          ],
+          "operationPreview": {
+            "policyId": "windows-user-temp",
+            "mode": "contents-only",
+            "elevated": false
+          },
+          "evidence": [
+            {
+              "kind": "directory-exists",
+              "source": "filesystem",
+              "value": true
+            }
+          ],
+          "riskFlags": ["locked-files-expected", "runtime-scratch-excluded"],
+          "requiresPerItemConfirmation": false,
+          "affectedApplications": []
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "categoryId": "build-artifacts",
+      "label": "Build Artifacts",
+      "status": "found",
+      "statusReason": null,
+      "sizes": {
+        "logicalBytes": 1400000000,
+        "estimatedReclaimableBytes": 1400000000,
+        "protectedBytes": 0
+      },
+      "items": [
+        {
+          "itemId": "project-a-next",
+          "displayName": "project-a .next",
+          "disposition": "eligible",
+          "sizes": {
+            "logicalBytes": 1400000000,
+            "estimatedReclaimableBytes": 1400000000,
+            "protectedBytes": 0
+          },
+          "resources": [
+            {
+              "resourceId": "project-a-next-dir",
+              "kind": "directory",
+              "canonicalPath": "C:\\Users\\example\\workspace\\project-a\\.next",
+              "logicalBytes": 1400000000,
+              "protected": false
+            }
+          ],
+          "operationPreview": {
+            "policyId": "inactive-build-artifact",
+            "mode": "whole-directory",
+            "elevated": false
+          },
+          "evidence": [
+            {
+              "kind": "git-last-commit",
+              "source": "git-log",
+              "value": "2026-06-01T10:00:00Z"
+            },
+            {
+              "kind": "newest-file",
+              "source": "wiztree",
+              "value": "2026-08-20T10:00:00Z"
+            }
+          ],
+          "riskFlags": ["refresh-freshness", "refresh-liveness"],
+          "requiresPerItemConfirmation": false,
+          "affectedApplications": []
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "categoryId": "config-msi-leftovers",
+      "label": "Config.Msi Leftovers",
+      "status": "found",
+      "statusReason": null,
+      "sizes": {
+        "logicalBytes": 280000000,
+        "estimatedReclaimableBytes": 280000000,
+        "protectedBytes": 0
+      },
+      "items": [
+        {
+          "itemId": "config-msi",
+          "displayName": "Config.Msi",
+          "disposition": "eligible",
+          "sizes": {
+            "logicalBytes": 280000000,
+            "estimatedReclaimableBytes": 280000000,
+            "protectedBytes": 0
+          },
+          "resources": [
+            {
+              "resourceId": "config-msi-dir",
+              "kind": "directory",
+              "canonicalPath": "C:\\Config.Msi",
+              "logicalBytes": 280000000,
+              "protected": false
+            }
+          ],
+          "operationPreview": {
+            "policyId": "config-msi-leftovers",
+            "mode": "whole-directory",
+            "elevated": true
+          },
+          "evidence": [
+            {
+              "kind": "installer-process-census",
+              "source": "process-list",
+              "value": false
+            }
+          ],
+          "riskFlags": ["installer-process-guard", "requires-elevation"],
+          "requiresPerItemConfirmation": false,
+          "affectedApplications": []
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "categoryId": "windows-old",
+      "label": "Windows.old",
+      "status": "found",
+      "statusReason": null,
+      "sizes": {
+        "logicalBytes": 12000000000,
+        "estimatedReclaimableBytes": null,
+        "protectedBytes": 0
+      },
+      "items": [
+        {
+          "itemId": "windows-old",
+          "displayName": "Previous Windows installation",
+          "disposition": "manual-only",
+          "sizes": {
+            "logicalBytes": 12000000000,
+            "estimatedReclaimableBytes": null,
+            "protectedBytes": 0
+          },
+          "resources": [
+            {
+              "resourceId": "windows-old-dir",
+              "kind": "manual",
+              "canonicalPath": "C:\\Windows.old",
+              "logicalBytes": 12000000000,
+              "protected": false
+            }
+          ],
+          "operationPreview": {
+            "policyId": "windows-old-manual",
+            "mode": "manual-only",
+            "elevated": true
+          },
+          "evidence": [
+            {
+              "kind": "directory-exists",
+              "source": "filesystem",
+              "value": true
+            }
+          ],
+          "riskFlags": ["manual-settings-only"],
+          "requiresPerItemConfirmation": false,
+          "affectedApplications": []
+        }
+      ],
+      "warnings": []
+    }
+  ],
+  "warnings": [],
+  "failures": []
+}

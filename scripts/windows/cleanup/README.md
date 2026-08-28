@@ -25,8 +25,15 @@ hardcode a `/tmp/...` path inside a script.
 | `winsdk.ps1` | `powershell.exe -NoProfile -File winsdk.ps1` | Old side-by-side Windows SDK versions |
 | `vs_orphans.ps1` | `powershell.exe -NoProfile -File vs_orphans.ps1` | Orphaned Visual Studio installs |
 | `live_paths.ps1` | `powershell.exe -NoProfile -File live_paths.ps1 [-Summary]` | Paths running processes depend on (stdout); session census (stderr) |
+| `scan.ps1` | `pwsh -NoProfile -File scan.ps1 -OutputPath <scan.json>` | Immutable five-category Windows evidence scan (PowerShell 7) |
 | `assert_list.py` | `python assert_list.py <list> --require 'L=SUB' --forbid 'L=SUB'` | **Gate before `scrub.ps1`** — buckets the list; fails on a missing/forbidden/unclassified/empty entry |
 | `scrub.ps1` | `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scrub.ps1 -ListFile <file>` | Hook-safe batch deleter (one path per line) |
+| `execute-plan.ps1` | `pwsh -NoProfile -File execute-plan.ps1 -ScanPath <scan> -PlanPath <plan> -OutputPath <result>` | Validate and dispatch allowlisted operations |
+
+Automatic UAC launching is intentionally not part of the first structured
+slice. Elevated operations use the same plan and validator but execute only
+when `execute-plan.ps1` is already running in a trusted elevated process;
+otherwise they return `manual-required`.
 
 **Hook-safe deletion.** `scrub.ps1` exists because this workstation's path-protection
 PreToolUse hook scans the command *string* and aborts the whole command if it sees an

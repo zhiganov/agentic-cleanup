@@ -25,7 +25,16 @@ irm https://raw.githubusercontent.com/zhiganov/claude-cleanup/master/install.ps1
 ```
 /cleanup              # scan, report, select, clean
 /cleanup --dry-run    # scan and report only
+/cleanup --structured-preview  # immutable five-category Windows evidence preview
 ```
+
+The structured preview is the first migration slice of the testable contract
+pipeline and requires PowerShell 7 (`pwsh`). Ordinary cleanup remains available
+without it while the remaining categories are migrated.
+
+Manual installers stage and SHA-256 verify one complete release before copying
+it into `~/.claude`. The installed command verifies the same manifest and
+refuses to run after an interrupted or mixed-version update.
 
 ## Portable variant (no install)
 
@@ -41,7 +50,7 @@ If [WizTree](https://www.diskanalyzer.com/) is installed, the scan phase complet
 
 ## Windows helper scripts
 
-On Windows the scan and delete steps are backed by committed helper scripts in [`scripts/windows/cleanup/`](./scripts/windows/cleanup/) — a size lookup over the WizTree CSV, the `node_modules` / build-artifact finder, the elevated WizTree export, the orphan/old-version discovery scripts, and a hook-safe batch deleter. The installers place these in `~/.claude/cleanup-scripts/` and the command resolves them automatically. macOS/Linux runs need no helper scripts.
+On Windows the scan and delete steps are backed by committed helper scripts in [`scripts/windows/cleanup/`](./scripts/windows/cleanup/) — a size lookup over the WizTree CSV, the `node_modules` / build-artifact finder, the elevated WizTree export, the orphan/old-version discovery scripts, and allowlisted structured executors. Versioned scan/plan/result contracts live in [`scripts/cleanup/`](./scripts/cleanup/). The installers place these in `~/.claude/cleanup-scripts/` and `~/.claude/cleanup-contracts/`; the command resolves them automatically. macOS/Linux runs need no helper scripts.
 
 ## What It Scans (31 categories)
 

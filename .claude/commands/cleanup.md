@@ -20,7 +20,7 @@ If you run this on an untested distro and something misbehaves, the category gua
 
 - `$ARGUMENTS` — optional flags
 
-Parse `$ARGUMENTS`: if it contains `--dry-run`, operate in report-only mode (skip selection and deletion steps).
+Parse `$ARGUMENTS`: if it contains `--dry-run`, operate in report-only mode (skip selection and deletion steps). If it contains `--structured-preview`, run the committed five-category Windows contract preview described below and stop after rendering its immutable scan.
 
 ## Instructions
 
@@ -50,6 +50,22 @@ for cand in "$root/claude-config/scripts/windows/cleanup" "$root/scripts/windows
   [ -f "$cand/wt_lookup.py" ] && CLEANUP_SCRIPTS="$cand" && break
 done
 [ -n "$CLEANUP_SCRIPTS" ] || CLEANUP_SCRIPTS="$(dirname "$(find "$root" "$HOME/.claude" -maxdepth 7 -path '*/wt_lookup.py' 2>/dev/null | grep -i cleanup | head -1)")"
+CLEANUP_CONTRACTS=""
+for cand in "$root/claude-config/scripts/cleanup" "$root/scripts/cleanup" "$HOME/.claude/cleanup-contracts"; do
+  [ -f "$cand/Cleanup.Contracts.psm1" ] && CLEANUP_CONTRACTS="$cand" && break
+done
+
+# A regular installed helper directory must be bound to the command/contracts
+# from the same release. A maintainer junction resolves elsewhere with pwd -P
+# and is covered by the two-checkout provenance check below instead.
+installed_helpers="$HOME/.claude/cleanup-scripts"
+if [ "$CLEANUP_SCRIPTS" = "$installed_helpers" ] && \
+   [ "$(cd "$installed_helpers" 2>/dev/null && pwd -P)" = "$(cd "$installed_helpers" 2>/dev/null && pwd -L)" ]; then
+  manifest="$HOME/.claude/cleanup-manifest.sha256"
+  [ -f "$manifest" ] || { echo "STOP: installed cleanup manifest is missing; reinstall /cleanup"; exit 1; }
+  (cd "$HOME/.claude" && sha256sum -c --quiet cleanup-manifest.sha256) || \
+    { echo "STOP: installed cleanup files are mixed or corrupt; reinstall /cleanup"; exit 1; }
+fi
 ```
 
 **Say which copy you resolved, then check it against canonical. Refuse to run on drift.**
@@ -70,6 +86,10 @@ if [ -d "$cc" ] && [ -d "$cl" ]; then
     [ -e "$f" ] || continue
     same "$f" "$cl/scripts/windows/cleanup/$(basename "$f")" || { echo "DRIFT: $(basename "$f")"; drift=1; }
   done
+  while IFS= read -r f; do
+    rel="${f#"$cc/scripts/cleanup/"}"
+    same "$f" "$cl/scripts/cleanup/$rel" || { echo "DRIFT: scripts/cleanup/$rel"; drift=1; }
+  done < <(find "$cc/scripts/cleanup" -type f \( -name '*.ps1' -o -name '*.psm1' -o -name '*.json' \) ! -path '*/tests/*' ! -path '*/fixtures/*' | sort)
   [ "$drift" -eq 0 ] && echo "provenance OK — canonical == published" \
                      || { echo "STOP: sync canonical -> published before running"; exit 1; }
 fi
@@ -90,8 +110,10 @@ fi
 | `squirrel.ps1` | Discover Squirrel old `app-*` versions |
 | `appdata_orphans.ps1` / `winsdk.ps1` / `vs_orphans.ps1` | Windows orphan / old-version discovery |
 | `live_paths.ps1 [-Summary]` | Paths RUNNING processes depend on (stdout); session + MCP-server census on stderr |
+| `scan.ps1` | Emit an immutable, schema-validated five-category Windows evidence scan |
 | `assert_list.py <list> --require L=SUB --forbid L=SUB --live <paths>` | **Gate before `scrub.ps1`** — buckets the list, fails on a missing/forbidden/unclassified/live entry |
 | `scrub.ps1 -ListFile <file>` | Hook-safe batch deleter (one path per line) |
+| `execute-plan.ps1` | Validate and run only operations resolved through the committed policy registry; elevated targets require an already elevated trusted process |
 
 PowerShell helpers: `powershell.exe -NoProfile -File "$(cygpath -w "$CLEANUP_SCRIPTS/<name>.ps1")" …`. Python helpers: `python "$CLEANUP_SCRIPTS/<name>.py" …`. Always pass the CSV path and workspace root as **command-line arguments** (MSYS converts those). If `$CLEANUP_SCRIPTS` can't be resolved, fall back to each category's per-path PowerShell/`du` sizing — but the committed files are the supported path; do not re-author them inline.
 
@@ -111,6 +133,25 @@ Determine platform:
 - Output starts with `MINGW` or `MSYS` → **windows**
 - Output is `Darwin` → **macos**
 - Output is `Linux` → **linux**
+
+For `--structured-preview`, require Windows, PowerShell 7 (`pwsh`), and both resolved helper directories, then run the committed evidence path and stop:
+
+```bash
+scan="/tmp/claude-cleanup/scan-$(date +%s).json"
+published_args=()
+[ -d "$cl/scripts/windows/cleanup" ] && \
+  published_args=(-PublishedHelpersDirectory "$(cygpath -w "$cl/scripts/windows/cleanup")")
+pwsh -NoProfile -File "$(cygpath -w "$CLEANUP_SCRIPTS/scan.ps1")" \
+  -OutputPath "$(cygpath -w "$scan")" \
+  -WorkspaceRoot "$(cygpath -w "$root")" \
+  -HelpersDirectory "$(cygpath -w "$CLEANUP_SCRIPTS")" \
+  -ContractDirectory "$(cygpath -w "$CLEANUP_CONTRACTS")" \
+  "${published_args[@]}"
+pwsh -NoProfile -File "$(cygpath -w "$CLEANUP_CONTRACTS/render-scan.ps1")" \
+  -ScanPath "$(cygpath -w "$scan")"
+```
+
+This preview is read-only. It covers the first migrated categories: npm cache with `_npx` protection, user temp with runtime scratch exclusions, inactive build artifacts with freshness evidence, Config.Msi, and manual-only Windows.old. It never builds a plan or executes cleanup. Continue with the existing full-category path for ordinary `/cleanup` and `/cleanup --dry-run` until the remaining categories are migrated.
 
 Measure current disk space ("before" snapshot for the final summary):
 
@@ -197,7 +238,7 @@ Then **verify the CSV** (a full-drive export is typically 100-300 MB; this drive
 **If WizTree is NOT found**, check if a recent WizTree CSV already exists in the workspace (the user may have exported one manually):
 
 ```bash
-find /c/Users/temaz/claude-project/claude-cleanup -maxdepth 1 -name "WizTree*.csv" -newer /tmp/claude-cleanup 2>/dev/null | head -1
+find "${OPENCODE_WORKSPACE_ROOT:-$PWD}/claude-cleanup" -maxdepth 1 -name "WizTree*.csv" -newer /tmp/claude-cleanup 2>/dev/null | head -1
 ```
 
 If a CSV is found (either exported or pre-existing), use the committed `wt_lookup.py` (see *Helper scripts*) for instant size lookups — it reads the CSV path from `argv[1]` and query paths from stdin. Test it: pipe a known path and confirm a non-zero size.

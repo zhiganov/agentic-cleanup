@@ -1,0 +1,199 @@
+{
+  "schemaVersion": "1.0",
+  "planId": "77a162cd-9f88-4d46-bb91-5598e224b492",
+  "runId": "9a1fd33e-7c81-4fce-92bd-e72847546be1",
+  "createdAt": "2026-08-22T13:05:00Z",
+  "scan": {
+    "schemaVersion": "1.0",
+    "digestAlgorithm": "sha256-utf8-lf-v1",
+    "sha256": "69cb4853fe25f04ab2c60c89f0f8b7973719b8d57d4130feeda11ccce16ab765",
+    "createdAt": "2026-08-22T13:00:00Z"
+  },
+  "selection": {
+    "source": "interactive-user-selection",
+    "selectedAt": "2026-08-22T13:04:30Z",
+    "categoryIds": [
+      "package-manager-caches",
+      "windows-temp-files",
+      "build-artifacts",
+      "config-msi-leftovers",
+      "windows-old"
+    ],
+    "itemIds": [
+      "npm-cache",
+      "user-temp",
+      "project-a-next",
+      "config-msi",
+      "windows-old"
+    ]
+  },
+  "assertionBuckets": [
+    {
+      "categoryId": "package-manager-caches",
+      "minimumOperationCount": 1
+    },
+    {
+      "categoryId": "windows-temp-files",
+      "minimumOperationCount": 1
+    },
+    {
+      "categoryId": "build-artifacts",
+      "minimumOperationCount": 1
+    },
+    {
+      "categoryId": "config-msi-leftovers",
+      "minimumOperationCount": 1
+    },
+    {
+      "categoryId": "windows-old",
+      "minimumOperationCount": 1
+    }
+  ],
+  "operations": [
+    {
+      "operationId": "npm-cache-clean",
+      "categoryId": "package-manager-caches",
+      "itemId": "npm-cache",
+      "policyId": "npm-cache-clean",
+      "executorId": "npm-cache-clean",
+      "mode": "tool-command",
+      "elevated": false,
+      "confirmation": "category-selected",
+      "target": {
+        "resourceId": "npm-cacache",
+        "canonicalPath": "C:\\Users\\example\\AppData\\Local\\npm-cache\\_cacache",
+        "expectedKind": "directory",
+        "expectedLogicalBytes": 8500000000
+      },
+      "preconditions": {
+        "rootPolicyId": "npm-cacache-root",
+        "requireExists": true,
+        "rejectReparsePoint": true,
+        "liveness": "not-applicable",
+        "freshness": "not-applicable",
+        "registeredMcpOwnership": "not-applicable"
+      },
+      "affectedApplications": []
+    },
+    {
+      "operationId": "windows-user-temp-clear",
+      "categoryId": "windows-temp-files",
+      "itemId": "user-temp",
+      "policyId": "windows-user-temp",
+      "executorId": "clear-directory-contents",
+      "mode": "contents-only",
+      "elevated": false,
+      "confirmation": "category-selected",
+      "target": {
+        "resourceId": "user-temp-root",
+        "canonicalPath": "C:\\Users\\example\\AppData\\Local\\Temp",
+        "expectedKind": "directory",
+        "expectedLogicalBytes": 800000000
+      },
+      "preconditions": {
+        "rootPolicyId": "windows-user-temp-root",
+        "requireExists": true,
+        "rejectReparsePoint": true,
+        "liveness": "refresh-before-execution",
+        "freshness": "not-applicable",
+        "registeredMcpOwnership": "not-applicable"
+      },
+      "affectedApplications": []
+    },
+    {
+      "operationId": "project-a-next-remove",
+      "categoryId": "build-artifacts",
+      "itemId": "project-a-next",
+      "policyId": "inactive-build-artifact",
+      "executorId": "remove-directory-tree",
+      "mode": "whole-directory",
+      "elevated": false,
+      "confirmation": "category-selected",
+      "target": {
+        "resourceId": "project-a-next-dir",
+        "canonicalPath": "C:\\Users\\example\\workspace\\project-a\\.next",
+        "expectedKind": "directory",
+        "expectedLogicalBytes": 1400000000
+      },
+      "preconditions": {
+        "rootPolicyId": "workspace-build-artifact-root",
+        "requireExists": true,
+        "rejectReparsePoint": true,
+        "liveness": "refresh-before-execution",
+        "freshness": "refresh-before-execution",
+        "registeredMcpOwnership": "not-applicable"
+      },
+      "affectedApplications": []
+    },
+    {
+      "operationId": "config-msi-remove",
+      "categoryId": "config-msi-leftovers",
+      "itemId": "config-msi",
+      "policyId": "config-msi-leftovers",
+      "executorId": "remove-directory-tree-elevated",
+      "mode": "whole-directory",
+      "elevated": true,
+      "confirmation": "category-selected",
+      "target": {
+        "resourceId": "config-msi-dir",
+        "canonicalPath": "C:\\Config.Msi",
+        "expectedKind": "directory",
+        "expectedLogicalBytes": 280000000
+      },
+      "preconditions": {
+        "rootPolicyId": "config-msi-root",
+        "requireExists": true,
+        "rejectReparsePoint": true,
+        "liveness": "refresh-before-execution",
+        "freshness": "not-applicable",
+        "registeredMcpOwnership": "not-applicable"
+      },
+      "affectedApplications": ["Windows Installer", "Windows Update"]
+    },
+    {
+      "operationId": "windows-old-instructions",
+      "categoryId": "windows-old",
+      "itemId": "windows-old",
+      "policyId": "windows-old-manual",
+      "executorId": "show-windows-storage-instructions",
+      "mode": "manual-only",
+      "elevated": true,
+      "confirmation": "category-selected",
+      "target": {
+        "resourceId": "windows-old-dir",
+        "canonicalPath": "C:\\Windows.old",
+        "expectedKind": "manual",
+        "expectedLogicalBytes": 12000000000
+      },
+      "preconditions": {
+        "rootPolicyId": "windows-old-root",
+        "requireExists": true,
+        "rejectReparsePoint": true,
+        "liveness": "not-applicable",
+        "freshness": "not-applicable",
+        "registeredMcpOwnership": "not-applicable"
+      },
+      "affectedApplications": []
+    }
+  ],
+  "exclusions": [
+    {
+      "policyId": "protect-cleanup-scratch",
+      "canonicalPath": "C:\\Users\\example\\AppData\\Local\\Temp\\claude-cleanup",
+      "relationship": "subtree",
+      "reason": "Current cleanup run scratch and scan snapshot"
+    },
+    {
+      "policyId": "protect-runtime-scratch",
+      "canonicalPath": "C:\\Users\\example\\AppData\\Local\\Temp\\claude",
+      "relationship": "subtree",
+      "reason": "Live Claude Code scratch"
+    },
+    {
+      "policyId": "protect-npm-npx",
+      "canonicalPath": "C:\\Users\\example\\AppData\\Local\\npm-cache\\_npx",
+      "relationship": "subtree",
+      "reason": "Live MCP servers execute from _npx"
+    }
+  ]
+}
