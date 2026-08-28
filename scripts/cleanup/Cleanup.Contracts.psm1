@@ -158,6 +158,7 @@ function Assert-PlanSemantics {
         $expectedExclusions['protect-cleanup-scratch'] = [ordered]@{ path = [IO.Path]::GetFullPath((Join-Path $userTemp[0].canonicalPath 'agentic-cleanup')); relationship = 'subtree' }
         $expectedExclusions['protect-legacy-cleanup-scratch'] = [ordered]@{ path = [IO.Path]::GetFullPath((Join-Path $userTemp[0].canonicalPath 'claude-cleanup')); relationship = 'subtree' }
         $expectedExclusions['protect-runtime-scratch'] = [ordered]@{ path = [IO.Path]::GetFullPath((Join-Path $userTemp[0].canonicalPath 'claude')); relationship = 'subtree' }
+        $expectedExclusions['protect-opencode-runtime-scratch'] = [ordered]@{ path = [IO.Path]::GetFullPath((Join-Path $userTemp[0].canonicalPath 'opencode')); relationship = 'subtree' }
     }
     if (Compare-Object @($expectedExclusions.Keys | Sort-Object) @($exclusions.policyId | Sort-Object)) {
         throw 'Plan exclusions must match mandatory scan-derived exclusions exactly'

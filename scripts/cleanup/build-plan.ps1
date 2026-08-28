@@ -108,6 +108,7 @@ if ($tempRoot.Count -eq 1 -and $tempRoot[0].canonicalPath) {
     $exclusions.Add([ordered]@{ policyId = 'protect-cleanup-scratch'; canonicalPath = [IO.Path]::GetFullPath((Join-Path $tempRoot[0].canonicalPath 'agentic-cleanup')); relationship = 'subtree'; reason = 'Current cleanup run scratch and scan snapshot' })
     $exclusions.Add([ordered]@{ policyId = 'protect-legacy-cleanup-scratch'; canonicalPath = [IO.Path]::GetFullPath((Join-Path $tempRoot[0].canonicalPath 'claude-cleanup')); relationship = 'subtree'; reason = 'Pre-rename cleanup run scratch' })
     $exclusions.Add([ordered]@{ policyId = 'protect-runtime-scratch'; canonicalPath = [IO.Path]::GetFullPath((Join-Path $tempRoot[0].canonicalPath 'claude')); relationship = 'subtree'; reason = 'Live runtime scratch' })
+    $exclusions.Add([ordered]@{ policyId = 'protect-opencode-runtime-scratch'; canonicalPath = [IO.Path]::GetFullPath((Join-Path $tempRoot[0].canonicalPath 'opencode')); relationship = 'subtree'; reason = 'Live OpenCode runtime scratch' })
 }
 
 $now = [DateTime]::UtcNow.ToString('o')

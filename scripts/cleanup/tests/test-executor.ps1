@@ -34,6 +34,7 @@ try {
     $env:TEMP = $temp
     Add-TestFile (Join-Path $temp 'ordinary\cache.bin')
     Add-TestFile (Join-Path $temp 'claude\live.bin')
+    Add-TestFile (Join-Path $temp 'opencode\live.bin')
     Add-TestFile (Join-Path $temp 'agentic-cleanup\scan.bin')
     Add-TestFile (Join-Path $temp 'claude-cleanup\legacy-scan.bin')
     Add-TestFile (Join-Path $local 'npm-cache\_cacache\cache.bin')
@@ -115,6 +116,7 @@ exit 1
     Assert-True (-not (Test-Path -LiteralPath (Split-Path -Parent $artifact))) 'Executor removes a validated inactive build artifact'
     Assert-True (Test-Path -LiteralPath $lockedPath) 'Executor does not retry or kill the holder of a locked temp file'
     Assert-True (Test-Path -LiteralPath (Join-Path $temp 'claude\live.bin')) 'Executor preserves runtime scratch exclusion'
+    Assert-True (Test-Path -LiteralPath (Join-Path $temp 'opencode\live.bin')) 'Executor preserves OpenCode runtime scratch exclusion'
     Assert-True (Test-Path -LiteralPath (Join-Path $temp 'agentic-cleanup\scan.bin')) 'Executor preserves cleanup scratch exclusion'
     Assert-True (Test-Path -LiteralPath (Join-Path $temp 'claude-cleanup\legacy-scan.bin')) 'Executor preserves pre-rename cleanup scratch exclusion'
     Assert-True (Test-Path -LiteralPath $scan) 'Executor accepts scan and plan evidence inside protected cleanup scratch'

@@ -196,6 +196,12 @@
       "reason": "Live Claude Code scratch"
     },
     {
+      "policyId": "protect-opencode-runtime-scratch",
+      "canonicalPath": "C:\\Users\\example\\AppData\\Local\\Temp\\opencode",
+      "relationship": "subtree",
+      "reason": "Live OpenCode runtime scratch"
+    },
+    {
       "policyId": "protect-npm-npx",
       "canonicalPath": "C:\\Users\\example\\AppData\\Local\\npm-cache\\_npx",
       "relationship": "subtree",

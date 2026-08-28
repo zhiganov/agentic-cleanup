@@ -21,6 +21,7 @@ try {
     Assert-True (@($plan.exclusions | Where-Object policyId -eq 'protect-npm-npx').Count -eq 1) 'Builder carries the npm _npx exclusion'
     Assert-True (@($plan.exclusions | Where-Object policyId -eq 'protect-legacy-cleanup-scratch').Count -eq 1) 'Builder carries the pre-rename cleanup scratch exclusion'
     Assert-True (@($plan.exclusions | Where-Object policyId -eq 'protect-runtime-scratch').Count -eq 1) 'Builder carries the runtime scratch exclusion'
+    Assert-True (@($plan.exclusions | Where-Object policyId -eq 'protect-opencode-runtime-scratch').Count -eq 1) 'Builder carries the OpenCode runtime scratch exclusion'
 } finally {
     Remove-Item -LiteralPath $output -Force -ErrorAction SilentlyContinue
 }

@@ -155,7 +155,7 @@ function New-WindowsTempCategory([string]$Path) {
     $root = Get-CanonicalPath $Path
     $logical = Get-PathBytes $root
     $protected = 0L
-    foreach ($name in @('agentic-cleanup', 'claude-cleanup', 'claude')) { $protected += Get-PathBytes (Join-Path $root $name) }
+    foreach ($name in @('agentic-cleanup', 'claude-cleanup', 'claude', 'opencode')) { $protected += Get-PathBytes (Join-Path $root $name) }
     $reclaimable = [Math]::Max(0L, $logical - $protected)
     [object[]]$items = if (Test-Path -LiteralPath $root) { ,([ordered]@{
         itemId = 'user-temp'; displayName = 'User temp'; disposition = if ($reclaimable -gt 0) { 'eligible' } else { 'skipped-protected' }

@@ -26,6 +26,15 @@ function Resolve-Source([string]$InstallPath) {
     throw "Unknown install path: $InstallPath"
 }
 
+$commandText = [IO.File]::ReadAllText((Join-Path $repoRoot 'cleanup.md'))
+$positionPlaceholder = [regex]'\$(\d+)'
+Assert-True (-not $commandText.Contains('$ARGUMENTS')) 'Command template contains no OpenCode all-arguments placeholder collisions'
+Assert-True (-not $positionPlaceholder.IsMatch($commandText)) 'Command template contains no OpenCode positional placeholder collisions'
+$sampleArguments = '--dry-run'
+$renderedCommand = $commandText + "`n`n" + $sampleArguments
+Assert-True ($renderedCommand.EndsWith($sampleArguments, [StringComparison]::Ordinal)) 'OpenCode fallback rendering appends command arguments intact'
+Assert-True ($renderedCommand.Contains('$env:TEMP')) 'OpenCode fallback rendering preserves shell variable references'
+
 $entries = foreach ($line in Get-Content -LiteralPath $manifestPath) {
     if ($line -notmatch '^([0-9a-f]{64})  (.+)$') { throw "Invalid manifest line: $line" }
     [ordered]@{ digest = $Matches[1]; installPath = $Matches[2]; sourcePath = Resolve-Source $Matches[2] }

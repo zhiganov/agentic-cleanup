@@ -109,7 +109,9 @@ $failures = [System.Collections.Generic.List[string]]::new()
             'clear-directory-contents' {
                 $mandatoryDenies = @(
                     [IO.Path]::GetFullPath((Join-Path $env:TEMP 'claude')),
-                    [IO.Path]::GetFullPath((Join-Path $env:TEMP 'agentic-cleanup'))
+                    [IO.Path]::GetFullPath((Join-Path $env:TEMP 'opencode')),
+                    [IO.Path]::GetFullPath((Join-Path $env:TEMP 'agentic-cleanup')),
+                    [IO.Path]::GetFullPath((Join-Path $env:TEMP 'claude-cleanup'))
                 )
                 foreach ($child in @(Get-ChildItem -LiteralPath $target -Force -ErrorAction SilentlyContinue)) {
                     $excluded = @($plan.exclusions | Where-Object { Test-PathInside $child.FullName $_.canonicalPath $_.relationship })

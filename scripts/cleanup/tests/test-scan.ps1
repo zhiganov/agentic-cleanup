@@ -33,6 +33,7 @@ try {
     Add-TestFile (Join-Path $local 'npm-cache\_npx\server.bin')
     Add-TestFile (Join-Path $temp 'ordinary\cache.bin')
     Add-TestFile (Join-Path $temp 'claude\live.bin')
+    Add-TestFile (Join-Path $temp 'opencode\live.bin')
     Add-TestFile (Join-Path $temp 'agentic-cleanup\scan.bin')
     Add-TestFile (Join-Path $temp 'claude-cleanup\legacy-scan.bin')
     $artifactFile = Join-Path $workspace 'project-a\.next\cache.bin'
@@ -49,7 +50,7 @@ try {
     $scan = Get-Content -LiteralPath $output -Raw | ConvertFrom-Json -Depth 100
     Assert-True (@($scan.categories).Count -eq 5) 'Scanner emits all five representative categories'
     Assert-True (($scan.categories | Where-Object categoryId -eq 'package-manager-caches').sizes.protectedBytes -gt 0) 'Scanner separates protected npm _npx bytes'
-    Assert-True (($scan.categories | Where-Object categoryId -eq 'windows-temp-files').sizes.protectedBytes -ge 384) 'Scanner excludes current, legacy, and runtime scratch from reclaimable temp bytes'
+    Assert-True (($scan.categories | Where-Object categoryId -eq 'windows-temp-files').sizes.protectedBytes -ge 512) 'Scanner excludes cleanup and both runtime scratch directories from reclaimable temp bytes'
     Assert-True (($scan.categories | Where-Object categoryId -eq 'build-artifacts').items[0].disposition -eq 'eligible') 'Scanner emits an inactive, cold build artifact'
     Assert-True (($scan.categories | Where-Object categoryId -eq 'config-msi-leftovers').items[0].operationPreview.elevated) 'Scanner marks Config.Msi as elevated'
     Assert-True (($scan.categories | Where-Object categoryId -eq 'windows-old').items[0].disposition -eq 'manual-only') 'Scanner keeps Windows.old manual-only'

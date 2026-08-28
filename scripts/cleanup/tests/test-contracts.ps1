@@ -58,6 +58,10 @@ $missingExclusions = Read-Json $planPath
 $missingExclusions.exclusions = @()
 Assert-Fails { Assert-PlanSemantics $missingExclusions $scan $scanPath $policies } 'Mandatory protected exclusions cannot be removed'
 
+$missingOpenCodeExclusion = Read-Json $planPath
+$missingOpenCodeExclusion.exclusions = @($missingOpenCodeExclusion.exclusions | Where-Object policyId -ne 'protect-opencode-runtime-scratch')
+Assert-Fails { Assert-PlanSemantics $missingOpenCodeExclusion $scan $scanPath $policies } 'OpenCode runtime scratch exclusion cannot be removed'
+
 $badTotals = Read-Json $scanPath
 $badTotals.categories[0].sizes.protectedBytes++
 Assert-Fails { Assert-ScanSemantics $badTotals } 'Category size totals must match item totals'

@@ -22,9 +22,7 @@ If you run this on an untested distro and something misbehaves, the category gua
 
 ## Arguments
 
-- `$ARGUMENTS` — optional flags
-
-Parse `$ARGUMENTS`: if it contains `--dry-run`, operate in report-only mode (skip selection and deletion steps). If it contains `--structured-preview`, run the committed five-category Windows contract preview described below and stop after rendering its immutable scan.
+Parse the optional flags appended after this command template. If they contain `--dry-run`, operate in report-only mode (skip selection and deletion steps). If they contain `--structured-preview`, run the committed five-category Windows contract preview described below and stop after rendering its immutable scan.
 
 ## Instructions
 
@@ -78,7 +76,7 @@ if [ "$CLEANUP_SCRIPTS" = "$installed_helpers" ] && \
   [ "$(wc -l < "$manifest" | tr -d ' ')" -eq "${#manifest_paths[@]}" ] || \
     { echo "STOP: installed cleanup manifest inventory is incomplete; reinstall /cleanup"; exit 1; }
   for path in "${manifest_paths[@]}"; do
-    [ "$(awk -v path="$path" '$2 == path { n++ } END { print n + 0 }' "$manifest")" -eq 1 ] || \
+    [ "$(awk -v path="$path" '$(2) == path { n++ } END { print n + 0 }' "$manifest")" -eq 1 ] || \
       { echo "STOP: installed cleanup manifest inventory is invalid: $path"; exit 1; }
   done
   if command -v sha256sum >/dev/null 2>&1; then
@@ -111,7 +109,7 @@ echo "CLEANUP_SCRIPTS = $CLEANUP_SCRIPTS"
 # Maintainer machines carry two checkouts: claude-config (canonical, loaded via the
 # <workspace>/.claude/commands junction) and agentic-cleanup (what install.sh publishes).
 cc="$root/claude-config"; cl="$root/agentic-cleanup"
-same() { diff -q --strip-trailing-cr "$1" "$2" >/dev/null 2>&1 || cmp -s "$1" "$2"; }   # See below
+same() { diff -q --strip-trailing-cr "${1}" "${2}" >/dev/null 2>&1 || cmp -s "${1}" "${2}"; }   # See below
 if [ -d "$cc" ] && [ -d "$cl" ]; then
   drift=0
   same "$cc/commands/cleanup.md" "$cl/cleanup.md" || { echo "DRIFT: cleanup.md"; drift=1; }
@@ -540,14 +538,15 @@ Measure `%TEMP%` and `C:\Windows\Temp` (WizTree or fallback PowerShell).
 
 Skip if total < 50 MB.
 
-Clean command (Step 6): Exclude **three** subdirectories during the rename migration. Files locked by running processes will be skipped automatically:
+Clean command (Step 6): Exclude **four** runtime and cleanup subdirectories. Files locked by running processes will be skipped automatically:
 
 * `agentic-cleanup` — this run's scratch (holds the ~200 MB WizTree CSV).
 * `claude-cleanup` — a pre-rename cleanup run's scratch; preserve it while older installed sessions may still be active.
 * `claude` — **Claude Code's own scratch.** `%TEMP%\claude\<project-hash>\` holds the live session's task-output files and scratchpad. Deleting it kills in-flight commands: the running Bash tool's output file disappears and the call dies with `output file could not be read (ENOENT)`. Observed 2026-07-16 — it survived only because the harness had it open, so `scrub.ps1` returned `FAIL: Access to the path is denied`. Do not rely on that lock; exclude it by name.
+* `opencode` — **OpenCode's own scratch.** `%TEMP%\opencode\` may hold live tool output and task state for the current session; deleting it can destroy in-flight work.
 
 ```powershell
-Get-ChildItem "$env:TEMP" -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -notin @('agentic-cleanup','claude-cleanup','claude') } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+Get-ChildItem "$env:TEMP" -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -notin @('agentic-cleanup','claude-cleanup','claude','opencode') } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item "$env:SystemRoot\Temp\*" -Recurse -Force -ErrorAction SilentlyContinue
 ```
 
@@ -905,7 +904,7 @@ Collect: runtime list, total size.
 
 **Skip if platform is not linux.**
 
-- **Fedora/RHEL (dnf):** Check installed kernel count: `rpm -q kernel-core | wc -l`. If > 2, old kernels can be removed. Measure: `rpm -q kernel-core --queryformat '%{SIZE}\n' | sort -n | head -n -1 | awk '{s+=$1} END {print int(s/1048576)}'` (sum size of all but the newest, in MB).
+- **Fedora/RHEL (dnf):** Check installed kernel count: `rpm -q kernel-core | wc -l`. If > 2, old kernels can be removed. Measure: `rpm -q kernel-core --queryformat '%{SIZE}\n' | sort -n | head -n -1 | awk '{s+=$(1)} END {print int(s/1048576)}'` (sum size of all but the newest, in MB).
 - **Debian/Ubuntu (apt):** `dpkg -l 'linux-image-*' | grep '^ii' | wc -l`. Use `apt autoremove --dry-run` to list candidates and parse the freed-disk line.
 
 Skip if only one kernel installed, or total < 200 MB.
@@ -992,7 +991,7 @@ When apps are uninstalled, their profile/data dirs in `~/.config/` and `~/.local
    - `dpkg-query -W -f='${Package}\n' 2>/dev/null` (Debian/Ubuntu)
    - `pacman -Qq 2>/dev/null` (Arch)
    - `flatpak list --app --columns=application 2>/dev/null` (Flatpak)
-   - `snap list 2>/dev/null | awk 'NR>1 {print $1}'` (Snap)
+   - `snap list 2>/dev/null | awk 'NR>1 {print $(1)}'` (Snap)
 2. For each subdirectory under `~/.config/` and `~/.local/share/`:
    - Skip a curated allowlist of system/desktop-environment dirs that don't belong to a single package: `dconf`, `gtk-2.0`, `gtk-3.0`, `gtk-4.0`, `pulse`, `pipewire`, `wireplumber`, `systemd`, `mimeapps.list`, `user-dirs.dirs`, `autostart`, `fontconfig`, `ibus`, `goa-1.0`, `evolution`, `gnome-*`, `xdg-desktop-portal`, `KDE`, `kdedefaults`, `plasma-*`, `kglobalshortcutsrc`, `flatpak`, `snap`, `recently-used.xbel`, `applications`, `mime`, `icons`, `themes`, `fonts`, `keyrings`, `nautilus`, `Trash`, `RecentDocuments`, `sounds`, `backgrounds`, `desktop-directories`.
    - Skip dirs starting with `.` (hidden inside hidden — never present here, but cheap guard).
@@ -1233,7 +1232,7 @@ powershell.exe -Command "Start-Process powershell.exe -ArgumentList '-File','<wi
 | App caches | `rm -rf <each large cache directory path>` |
 | Windows.old | **Cannot be deleted via CLI.** Instruct the user to use Settings > System > Storage > Temporary files > Previous Windows installation(s), or Disk Cleanup as Administrator. |
 | Delivery Optimization | **Elevated:** `Stop-Service DoSvc -Force; Remove-Item ...\Cache\* -Recurse -Force; Start-Service DoSvc`. If access denied, instruct user to use Settings > Storage > Temporary files. |
-| Windows Temp files | **Elevated for system temp.** User temp: PowerShell `Get-ChildItem "$env:TEMP" | Where-Object { $_.Name -notin @('agentic-cleanup','claude-cleanup','claude') } | Remove-Item -Recurse -Force` — all three exclusions are required during the rename migration; `claude` is Claude Code's own scratch and deleting it kills the running command. System temp: **elevated** `Remove-Item "$env:SystemRoot\Temp\*" -Recurse -Force` |
+| Windows Temp files | **Elevated for system temp.** User temp: PowerShell `Get-ChildItem "$env:TEMP" | Where-Object { $_.Name -notin @('agentic-cleanup','claude-cleanup','claude','opencode') } | Remove-Item -Recurse -Force` — all four exclusions are required; `claude` and `opencode` are live runtime scratch directories, and deleting either can kill the running command. System temp: **elevated** `Remove-Item "$env:SystemRoot\Temp\*" -Recurse -Force` |
 | Browser caches | `rm -rf <each cache directory path>/*` (contents only). Warn user to close browsers first. |
 | Electron app caches | `rm -rf <each cache directory path>/*` (contents only). Warn user to close affected apps first. |
 | Stale updater files | `rm -rf <each updater directory path>/*` for directories, `rm -f <path>` for individual .nupkg files. |
