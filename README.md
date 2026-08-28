@@ -21,7 +21,15 @@ Both installers add the same runtime-neutral `cleanup.md` to:
 - Claude Code: `~/.claude/commands/cleanup.md`
 - OpenCode V2: `${XDG_CONFIG_HOME:-~/.config}/opencode/commands/cleanup.md`
 
-Helpers, contracts, and the release manifest live once under `${XDG_DATA_HOME:-~/.local/share}/agentic-cleanup`. The installers stage and SHA-256 verify a complete release before publishing the manifest, and the command refuses to run if either runtime copy differs from that verified payload.
+Helpers, contracts, and the release manifest live once under `${XDG_DATA_HOME:-~/.local/share}/agentic-cleanup`. The installers stage and SHA-256 verify a complete release before publishing the manifest, and the command refuses to run if any selected runtime copy differs from that verified payload.
+
+Install for only one runtime by setting `AGENTIC_CLEANUP_RUNTIME` to `claude` or `opencode` (`all` is the default):
+
+```powershell
+$env:AGENTIC_CLEANUP_RUNTIME = 'opencode'
+irm https://raw.githubusercontent.com/zhiganov/agentic-cleanup/master/install.ps1 | iex
+Remove-Item Env:AGENTIC_CLEANUP_RUNTIME
+```
 
 ## Usage
 

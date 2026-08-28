@@ -5,6 +5,14 @@ REPO_URL="${AGENTIC_CLEANUP_REPO_URL:-https://raw.githubusercontent.com/zhiganov
 CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 OPENCODE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
 DATA_DIR="${AGENTIC_CLEANUP_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/agentic-cleanup}"
+RUNTIME="${AGENTIC_CLEANUP_RUNTIME:-all}"
+
+case "$RUNTIME" in
+  all) install_claude=1; install_opencode=1 ;;
+  claude) install_claude=1; install_opencode=0 ;;
+  opencode) install_claude=0; install_opencode=1 ;;
+  *) echo "Invalid AGENTIC_CLEANUP_RUNTIME: $RUNTIME (expected all, claude, or opencode)" >&2; exit 1 ;;
+esac
 
 echo "Installing agentic-cleanup..."
 
@@ -50,23 +58,42 @@ else
 fi
 
 # Publish the manifest last so an interrupted update fails closed.
-for target in "$DATA_DIR" "$DATA_DIR/cleanup.md" "$DATA_DIR/install-manifest.sha256" \
+for target in "$DATA_DIR" "$DATA_DIR/cleanup.md" "$DATA_DIR/install-manifest.sha256" "$DATA_DIR/installed-runtimes" \
               "$DATA_DIR/scripts" "$DATA_DIR/scripts/windows" "$DATA_DIR/scripts/windows/cleanup" \
-              "$DATA_DIR/scripts/cleanup" "$DATA_DIR/scripts/cleanup/schemas" "$DATA_DIR/scripts/cleanup/policies" \
-              "$CLAUDE_DIR" "$CLAUDE_DIR/commands" "$CLAUDE_DIR/commands/cleanup.md" \
-              "$OPENCODE_DIR" "$OPENCODE_DIR/commands" "$OPENCODE_DIR/commands/cleanup.md"; do
+              "$DATA_DIR/scripts/cleanup" "$DATA_DIR/scripts/cleanup/schemas" "$DATA_DIR/scripts/cleanup/policies"; do
   [ ! -L "$target" ] || { echo "Refusing to overwrite symlink: $target" >&2; exit 1; }
 done
-mkdir -p "$DATA_DIR/scripts/windows/cleanup" "$DATA_DIR/scripts/cleanup" "$CLAUDE_DIR/commands" "$OPENCODE_DIR/commands"
+if [ "$install_claude" -eq 1 ]; then
+  for target in "$CLAUDE_DIR" "$CLAUDE_DIR/commands" "$CLAUDE_DIR/commands/cleanup.md"; do
+    [ ! -L "$target" ] || { echo "Refusing to overwrite symlink: $target" >&2; exit 1; }
+  done
+fi
+if [ "$install_opencode" -eq 1 ]; then
+  for target in "$OPENCODE_DIR" "$OPENCODE_DIR/commands" "$OPENCODE_DIR/commands/cleanup.md"; do
+    [ ! -L "$target" ] || { echo "Refusing to overwrite symlink: $target" >&2; exit 1; }
+  done
+fi
+
+mkdir -p "$DATA_DIR/scripts/windows/cleanup" "$DATA_DIR/scripts/cleanup"
 cp "$stage/cleanup.md" "$DATA_DIR/cleanup.md"
 cp -R "$stage/scripts/windows/cleanup/." "$DATA_DIR/scripts/windows/cleanup/"
 cp -R "$stage/scripts/cleanup/." "$DATA_DIR/scripts/cleanup/"
-cp "$stage/cleanup.md" "$CLAUDE_DIR/commands/cleanup.md"
-cp "$stage/cleanup.md" "$OPENCODE_DIR/commands/cleanup.md"
+selected_runtimes=()
+if [ "$install_claude" -eq 1 ]; then
+  mkdir -p "$CLAUDE_DIR/commands"
+  cp "$stage/cleanup.md" "$CLAUDE_DIR/commands/cleanup.md"
+  cmp -s "$DATA_DIR/cleanup.md" "$CLAUDE_DIR/commands/cleanup.md"
+  selected_runtimes+=(claude)
+  echo "Installed /cleanup for Claude Code -> $CLAUDE_DIR/commands/cleanup.md"
+fi
+if [ "$install_opencode" -eq 1 ]; then
+  mkdir -p "$OPENCODE_DIR/commands"
+  cp "$stage/cleanup.md" "$OPENCODE_DIR/commands/cleanup.md"
+  cmp -s "$DATA_DIR/cleanup.md" "$OPENCODE_DIR/commands/cleanup.md"
+  selected_runtimes+=(opencode)
+  echo "Installed /cleanup for OpenCode V2 -> $OPENCODE_DIR/commands/cleanup.md"
+fi
+printf '%s\n' "${selected_runtimes[@]}" > "$DATA_DIR/installed-runtimes"
 cp "$stage/install-manifest.sha256" "$DATA_DIR/install-manifest.sha256"
 
-cmp -s "$DATA_DIR/cleanup.md" "$CLAUDE_DIR/commands/cleanup.md"
-cmp -s "$DATA_DIR/cleanup.md" "$OPENCODE_DIR/commands/cleanup.md"
-echo "Installed /cleanup for Claude Code -> $CLAUDE_DIR/commands/cleanup.md"
-echo "Installed /cleanup for OpenCode V2 -> $OPENCODE_DIR/commands/cleanup.md"
 echo "Installed verified shared payload -> $DATA_DIR"
