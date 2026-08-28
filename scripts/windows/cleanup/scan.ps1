@@ -62,16 +62,23 @@ function Get-DirectoryDigest([string]$Path) {
     [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
 }
 
+function Test-AgentMarker([string]$Path) {
+    (Test-Path -LiteralPath (Join-Path $Path '.claude')) -or
+        (Test-Path -LiteralPath (Join-Path $Path '.opencode')) -or
+        (Test-Path -LiteralPath (Join-Path $Path 'opencode.json') -PathType Leaf) -or
+        (Test-Path -LiteralPath (Join-Path $Path 'opencode.jsonc') -PathType Leaf)
+}
+
 function Resolve-Workspace([string]$Start, [string]$ExplicitRoot, [string]$Profile) {
     $cwd = Get-CanonicalPath $Start
     if ($ExplicitRoot) {
         $root = Get-CanonicalPath $ExplicitRoot
-        $marker = Join-Path $root '.claude'
+        $hasMarker = Test-AgentMarker $root
         return [ordered]@{
             cwd = $cwd
             root = $root
-            scoped = Test-Path -LiteralPath $marker
-            resolution = if (Test-Path -LiteralPath $marker) { 'outermost-marker-excluding-home' } else { 'cwd-fallback' }
+            scoped = $hasMarker
+            resolution = if ($hasMarker) { 'outermost-marker-excluding-home' } else { 'cwd-fallback' }
             nearerMarker = $null
         }
     }
@@ -80,7 +87,7 @@ function Resolve-Workspace([string]$Start, [string]$ExplicitRoot, [string]$Profi
     $current = [IO.DirectoryInfo]::new($cwd)
     while ($null -ne $current) {
         $candidate = Get-CanonicalPath $current.FullName
-        if ($candidate -ne $profileRoot -and (Test-Path -LiteralPath (Join-Path $candidate '.claude'))) {
+        if ($candidate -ne $profileRoot -and (Test-AgentMarker $candidate)) {
             [void]$markers.Add($candidate)
         }
         $current = $current.Parent
@@ -148,7 +155,7 @@ function New-WindowsTempCategory([string]$Path) {
     $root = Get-CanonicalPath $Path
     $logical = Get-PathBytes $root
     $protected = 0L
-    foreach ($name in @('claude-cleanup', 'claude')) { $protected += Get-PathBytes (Join-Path $root $name) }
+    foreach ($name in @('agentic-cleanup', 'claude-cleanup', 'claude')) { $protected += Get-PathBytes (Join-Path $root $name) }
     $reclaimable = [Math]::Max(0L, $logical - $protected)
     [object[]]$items = if (Test-Path -LiteralPath $root) { ,([ordered]@{
         itemId = 'user-temp'; displayName = 'User temp'; disposition = if ($reclaimable -gt 0) { 'eligible' } else { 'skipped-protected' }

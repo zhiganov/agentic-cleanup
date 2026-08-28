@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/zhiganov/claude-config/scripts/cleanup/schemas/plan.schema.json",
+  "$id": "https://raw.githubusercontent.com/zhiganov/agentic-cleanup/master/scripts/cleanup/schemas/plan.schema.json",
   "title": "Cleanup Plan",
   "description": "A user-selected, data-only cleanup plan. Executors must resolve policyId and executorId through committed allowlists; the plan cannot contain executable commands.",
   "type": "object",

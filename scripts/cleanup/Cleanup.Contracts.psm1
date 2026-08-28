@@ -155,7 +155,8 @@ function Assert-PlanSemantics {
     }
     $userTemp = @($Scan.categories.items.resources | Where-Object resourceId -eq 'user-temp-root')
     if ($userTemp.Count -eq 1 -and $userTemp[0].canonicalPath) {
-        $expectedExclusions['protect-cleanup-scratch'] = [ordered]@{ path = [IO.Path]::GetFullPath((Join-Path $userTemp[0].canonicalPath 'claude-cleanup')); relationship = 'subtree' }
+        $expectedExclusions['protect-cleanup-scratch'] = [ordered]@{ path = [IO.Path]::GetFullPath((Join-Path $userTemp[0].canonicalPath 'agentic-cleanup')); relationship = 'subtree' }
+        $expectedExclusions['protect-legacy-cleanup-scratch'] = [ordered]@{ path = [IO.Path]::GetFullPath((Join-Path $userTemp[0].canonicalPath 'claude-cleanup')); relationship = 'subtree' }
         $expectedExclusions['protect-runtime-scratch'] = [ordered]@{ path = [IO.Path]::GetFullPath((Join-Path $userTemp[0].canonicalPath 'claude')); relationship = 'subtree' }
     }
     if (Compare-Object @($expectedExclusions.Keys | Sort-Object) @($exclusions.policyId | Sort-Object)) {

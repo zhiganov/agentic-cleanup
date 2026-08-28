@@ -4,7 +4,9 @@
 
 **Goal:** Create a publishable `/cleanup` slash command that scans a developer workstation for reclaimable disk space and lets users selectively clean categories.
 
-**Architecture:** Single markdown file (`cleanup.md`) containing step-by-step instructions for Claude Code. No runtime code — Claude interprets the instructions and runs bash/PowerShell commands directly. Compatible with `npx skillsadd` for installation.
+**Historical note:** This plan records the original Claude Code-only implementation. The current package uses one runtime-neutral `cleanup.md`, dual Claude Code/OpenCode installers, and a shared agent-neutral data directory; see the repository README.
+
+**Architecture:** Single markdown file (`cleanup.md`) containing step-by-step instructions for a coding agent. No runtime code — the agent interprets the instructions and runs bash/PowerShell commands directly.
 
 **Tech Stack:** Markdown (slash command), Bash, PowerShell (Windows), Git (repo publishing)
 
@@ -15,10 +17,8 @@
 ## File Structure
 
 ```
-claude-cleanup/
-  .claude/
-    commands/
-      cleanup.md            # the slash command (skillsadd-compatible location)
+agentic-cleanup/
+  cleanup.md                # runtime-neutral slash command
   install.sh                # Unix install script (alternative to skillsadd)
   install.ps1               # Windows install script (alternative to skillsadd)
   README.md
@@ -41,7 +41,7 @@ claude-cleanup/
 - [ ] **Step 1: Init repo**
 
 ```bash
-cd ~/claude-project/claude-cleanup
+cd ~/claude-project/agentic-cleanup
 git init
 ```
 
@@ -61,13 +61,13 @@ git commit -m "docs: add spec and implementation plan"
 ### Task 2: Write the cleanup.md slash command
 
 **Files:**
-- Create: `.claude/commands/cleanup.md`
+- Create: `cleanup.md`
 
 This is the core deliverable. The entire command is a single markdown file with instructions for Claude Code. It must be detailed and precise because Claude interprets these instructions literally.
 
 - [ ] **Step 1: Write command header, argument parsing, and platform detection**
 
-Create `.claude/commands/cleanup.md` with:
+Create `cleanup.md` with:
 
 ```markdown
 # Developer Workstation Disk Cleanup
@@ -217,7 +217,7 @@ Instruct Claude to:
 
 - [ ] **Step 14: Review the complete command file**
 
-Read the full `.claude/commands/cleanup.md` and verify:
+Read the full `cleanup.md` and verify:
 - All 9 categories covered with correct platform guards
 - Safety rules from spec are embedded
 - Cross-platform paths match the spec
@@ -228,7 +228,7 @@ Read the full `.claude/commands/cleanup.md` and verify:
 - [ ] **Step 15: Commit**
 
 ```bash
-git add .claude/commands/cleanup.md
+git add cleanup.md
 git commit -m "feat: add /cleanup slash command with 9 scan categories"
 ```
 
@@ -250,13 +250,13 @@ git commit -m "feat: add /cleanup slash command with 9 scan categories"
 #!/bin/bash
 set -e
 
-REPO_URL="https://raw.githubusercontent.com/zhiganov/claude-cleanup/master"
+REPO_URL="https://raw.githubusercontent.com/zhiganov/agentic-cleanup/master"
 CLAUDE_DIR="$HOME/.claude"
 
-echo "Installing claude-cleanup..."
+echo "Installing agentic-cleanup..."
 
 mkdir -p "$CLAUDE_DIR/commands"
-curl -fsSL "$REPO_URL/.claude/commands/cleanup.md" -o "$CLAUDE_DIR/commands/cleanup.md"
+curl -fsSL "$REPO_URL/cleanup.md" -o "$CLAUDE_DIR/commands/cleanup.md"
 echo "✓ Installed cleanup.md → ~/.claude/commands/"
 
 echo ""
@@ -266,13 +266,13 @@ echo "Installation complete! Use /cleanup in Claude Code to get started."
 - [ ] **Step 2: Write install.ps1**
 
 ```powershell
-$RepoUrl = "https://raw.githubusercontent.com/zhiganov/claude-cleanup/master"
+$RepoUrl = "https://raw.githubusercontent.com/zhiganov/agentic-cleanup/master"
 $ClaudeDir = "$env:USERPROFILE\.claude"
 
-Write-Host "Installing claude-cleanup..."
+Write-Host "Installing agentic-cleanup..."
 
 New-Item -ItemType Directory -Force -Path "$ClaudeDir\commands" | Out-Null
-Invoke-WebRequest -Uri "$RepoUrl/.claude/commands/cleanup.md" -OutFile "$ClaudeDir\commands\cleanup.md"
+Invoke-WebRequest -Uri "$RepoUrl/cleanup.md" -OutFile "$ClaudeDir\commands\cleanup.md"
 Write-Host "✓ Installed cleanup.md → ~/.claude/commands/"
 
 Write-Host ""
@@ -282,8 +282,8 @@ Write-Host "Installation complete! Use /cleanup in Claude Code to get started."
 - [ ] **Step 3: Write README.md**
 
 Include:
-- One-line description: "Claude Code slash command that scans your dev workstation for reclaimable disk space"
-- Install instructions: `npx skillsadd zhiganov/claude-cleanup` (primary), manual curl/PowerShell (alternative)
+- One-line description: "Safe disk cleanup for coding agents"
+- Install instructions: the repository `install.sh` and `install.ps1`
 - What it scans (9 categories with brief descriptions)
 - Usage: `/cleanup` and `/cleanup --dry-run`
 - Platform support: Windows, macOS, Linux
@@ -304,12 +304,12 @@ git commit -m "feat: add install scripts, README, and LICENSE"
 ### Task 4: Test locally and publish
 
 **Files:**
-- Modify: `~/.claude/commands/cleanup.md` (copy for testing)
+- Modify: `~/cleanup.md` (copy for testing)
 
 - [ ] **Step 1: Install locally for testing**
 
 ```bash
-cp ~/claude-project/claude-cleanup/.claude/commands/cleanup.md ~/.claude/commands/cleanup.md
+cp ~/claude-project/agentic-cleanup/cleanup.md ~/cleanup.md
 ```
 
 - [ ] **Step 2: Test dry-run mode**
@@ -331,7 +331,7 @@ Run `/cleanup`. Verify:
 
 - [ ] **Step 4: Fix any issues found during testing**
 
-Address bugs from steps 2-3. Update `.claude/commands/cleanup.md`, re-copy, re-test.
+Address bugs from steps 2-3. Update `cleanup.md`, re-copy, re-test.
 
 - [ ] **Step 5: Commit fixes (if any)**
 
@@ -343,24 +343,25 @@ git commit -m "fix: address issues found during testing"
 - [ ] **Step 6: Create GitHub repo and push**
 
 ```bash
-cd ~/claude-project/claude-cleanup
-gh repo create zhiganov/claude-cleanup --public --description "Claude Code slash command for developer workstation disk cleanup" --source .
+cd ~/claude-project/agentic-cleanup
+gh repo create zhiganov/agentic-cleanup --public --description "Safe disk cleanup for coding agents" --source .
 git push -u origin master
 ```
 
-- [ ] **Step 7: Verify skillsadd compatibility**
+- [ ] **Step 7: Verify both runtime layouts**
 
 ```bash
-npx skillsadd zhiganov/claude-cleanup
+# Run each installer with temporary CLAUDE_CONFIG_DIR, XDG_CONFIG_HOME,
+# and XDG_DATA_HOME values.
 ```
 
-Verify that `/cleanup` is available after installation.
+Verify that `/cleanup` is available in Claude Code and OpenCode V2 after installation.
 
 - [ ] **Step 8: Add to workspace CLAUDE.md**
 
-Add `claude-cleanup/` to the directory table in root CLAUDE.md:
+Add `agentic-cleanup/` to the directory table in root CLAUDE.md:
 ```
-| `claude-cleanup/` | Published slash command for dev workstation disk cleanup (github.com/zhiganov/claude-cleanup) |
+| `agentic-cleanup/` | Published slash command for dev workstation disk cleanup (github.com/zhiganov/agentic-cleanup) |
 ```
 
 Add `/cleanup` to the custom commands table:

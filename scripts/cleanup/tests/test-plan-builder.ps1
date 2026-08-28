@@ -19,6 +19,7 @@ try {
     Assert-True (@($plan.operations).Count -eq 5) 'Builder maps representative categories to allowlisted operations'
     Assert-True (-not ($plan.operations.PSObject.Properties.Name -contains 'command')) 'Builder emits no executable command field'
     Assert-True (@($plan.exclusions | Where-Object policyId -eq 'protect-npm-npx').Count -eq 1) 'Builder carries the npm _npx exclusion'
+    Assert-True (@($plan.exclusions | Where-Object policyId -eq 'protect-legacy-cleanup-scratch').Count -eq 1) 'Builder carries the pre-rename cleanup scratch exclusion'
     Assert-True (@($plan.exclusions | Where-Object policyId -eq 'protect-runtime-scratch').Count -eq 1) 'Builder carries the runtime scratch exclusion'
 } finally {
     Remove-Item -LiteralPath $output -Force -ErrorAction SilentlyContinue

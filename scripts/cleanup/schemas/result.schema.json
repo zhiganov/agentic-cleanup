@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/zhiganov/claude-config/scripts/cleanup/schemas/result.schema.json",
+  "$id": "https://raw.githubusercontent.com/zhiganov/agentic-cleanup/master/scripts/cleanup/schemas/result.schema.json",
   "title": "Cleanup Result",
   "type": "object",
   "additionalProperties": false,

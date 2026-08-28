@@ -1,24 +1,27 @@
-# claude-cleanup
+# agentic-cleanup
 
-Claude Code slash command that scans your developer workstation for reclaimable disk space and lets you selectively clean up.
+Safe disk cleanup for coding agents. One `/cleanup` command scans a developer workstation for reclaimable disk space, reports what it finds, and deletes only the categories the user selects.
 
 ## Install
 
-```bash
-npx skillsadd zhiganov/claude-cleanup
-```
-
-**Alternative (manual):**
-
 macOS/Linux:
+
 ```bash
-curl -fsSL https://raw.githubusercontent.com/zhiganov/claude-cleanup/master/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/zhiganov/agentic-cleanup/master/install.sh | bash
 ```
 
 Windows (PowerShell):
+
 ```powershell
-irm https://raw.githubusercontent.com/zhiganov/claude-cleanup/master/install.ps1 | iex
+irm https://raw.githubusercontent.com/zhiganov/agentic-cleanup/master/install.ps1 | iex
 ```
+
+Both installers add the same runtime-neutral `cleanup.md` to:
+
+- Claude Code: `~/.claude/commands/cleanup.md`
+- OpenCode V2: `${XDG_CONFIG_HOME:-~/.config}/opencode/commands/cleanup.md`
+
+Helpers, contracts, and the release manifest live once under `${XDG_DATA_HOME:-~/.local/share}/agentic-cleanup`. The installers stage and SHA-256 verify a complete release before publishing the manifest, and the command refuses to run if either runtime copy differs from that verified payload.
 
 ## Usage
 
@@ -31,10 +34,6 @@ irm https://raw.githubusercontent.com/zhiganov/claude-cleanup/master/install.ps1
 The structured preview is the first migration slice of the testable contract
 pipeline and requires PowerShell 7 (`pwsh`). Ordinary cleanup remains available
 without it while the remaining categories are migrated.
-
-Manual installers stage and SHA-256 verify one complete release before copying
-it into `~/.claude`. The installed command verifies the same manifest and
-refuses to run after an interrupted or mixed-version update.
 
 ## Portable variant (no install)
 
@@ -50,7 +49,7 @@ If [WizTree](https://www.diskanalyzer.com/) is installed, the scan phase complet
 
 ## Windows helper scripts
 
-On Windows the scan and delete steps are backed by committed helper scripts in [`scripts/windows/cleanup/`](./scripts/windows/cleanup/) — a size lookup over the WizTree CSV, the `node_modules` / build-artifact finder, the elevated WizTree export, the orphan/old-version discovery scripts, and allowlisted structured executors. Versioned scan/plan/result contracts live in [`scripts/cleanup/`](./scripts/cleanup/). The installers place these in `~/.claude/cleanup-scripts/` and `~/.claude/cleanup-contracts/`; the command resolves them automatically. macOS/Linux runs need no helper scripts.
+On Windows the scan and delete steps are backed by committed helper scripts in [`scripts/windows/cleanup/`](./scripts/windows/cleanup/) — a size lookup over the WizTree CSV, the `node_modules` / build-artifact finder, the elevated WizTree export, the orphan/old-version discovery scripts, and allowlisted structured executors. Versioned scan/plan/result contracts live in [`scripts/cleanup/`](./scripts/cleanup/). The installers place both under the shared agent-neutral data directory; the command resolves them automatically. macOS/Linux runs need no helper scripts.
 
 ## What It Scans (31 categories)
 

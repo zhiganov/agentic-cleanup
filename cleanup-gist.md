@@ -181,4 +181,4 @@ Elevated operations should be batched: write all the `Remove-Item` calls to a si
 
 Disk cleanup is the perfect LLM task: tedious enough that nobody does it, but rule-based enough that a model with shell access can do it correctly if you tell it the rules. The hard part isn't deleting things — it's knowing what's safe, where to look, and how to surface it without making the user read 400 lines of `du` output.
 
-The original full version of this skill lives at [zhiganov/claude-cleanup](https://github.com/zhiganov/claude-cleanup) — it includes Windows-first detection, WizTree integration, and more categories. This gist is the portable Karpathy-style version: copy the contents into your LLM, run it, get your disk back.
+The original full version of this skill lives at [zhiganov/agentic-cleanup](https://github.com/zhiganov/agentic-cleanup) — it includes Windows-first detection, WizTree integration, and more categories. This gist is the portable Karpathy-style version: copy the contents into your LLM, run it, get your disk back.

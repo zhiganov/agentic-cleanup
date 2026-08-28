@@ -53,7 +53,7 @@ try {
     $scratchFixture = Join-Path $root 'scratch-process.json'
     @([ordered]@{
         ProcessId = 450; ParentProcessId = 1; Name = 'pwsh.exe'
-        CommandLine = "pwsh.exe -File execute-plan.ps1 -PlanPath `"$(Join-Path $temp 'claude-cleanup\plan.json')`" -OutputPath `"$(Join-Path $temp 'claude-cleanup\result.json')`""
+        CommandLine = "pwsh.exe -File execute-plan.ps1 -PlanPath `"$(Join-Path $temp 'agentic-cleanup\plan.json')`" -OutputPath `"$(Join-Path $temp 'agentic-cleanup\result.json')`""
         ExecutablePath = 'C:\Program Files\PowerShell\7\pwsh.exe'
     }) | ConvertTo-Json | Set-Content -LiteralPath $scratchFixture -Encoding utf8NoBOM
     Assert-Pass { & $validator -ScanPath $scan -PlanPath $plan -ProcessFixture $scratchFixture -Quiet } 'Protected cleanup scratch paths do not veto their contents-only temp operation'

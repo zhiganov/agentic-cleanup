@@ -50,7 +50,7 @@ $skipDirs = @(
     'node.js', 'git', 'ssh', 'gnupg', 'local', 'locallow', 'roaming',
     'temp', 'temporary internet files', 'packages', 'connecteddevicesplatform',
     'publishers', 'comms', 'windowsapps', 'programs', 'microsoft\windows',
-    'claude-cleanup'
+    'agentic-cleanup'
 )
 
 # Dev-tool surface. These are installed by curl|iwr scripts or bundled runtimes and

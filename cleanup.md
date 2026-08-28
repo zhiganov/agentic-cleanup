@@ -1,3 +1,7 @@
+---
+description: Safe disk cleanup for coding agents
+---
+
 # Developer Workstation Disk Cleanup
 
 Scan the workstation for reclaimable disk space, report findings in a categorized table, let the user select which categories to clean, and execute the cleanup.
@@ -26,11 +30,12 @@ Parse `$ARGUMENTS`: if it contains `--dry-run`, operate in report-only mode (ski
 
 ## Helper scripts (Windows)
 
-The Windows scan/delete helpers are **committed files** — do NOT re-author them as inline heredocs. Backslash literals get mangled inside a heredoc, and a hardcoded `/tmp/...` path inside a script is not MSYS-converted (only command-line arguments are); both bit on 2026-06-26. They live in one of three layouts depending on how `/cleanup` was installed: `scripts/windows/cleanup/` in a standalone `claude-cleanup` checkout, `~/.claude/cleanup-scripts/` when installed via `install.sh`/`install.ps1`, or `claude-config/scripts/windows/cleanup/` in the synced workspace. Resolve the directory once at the start of the run:
+The Windows scan/delete helpers are **committed files** — do NOT re-author them as inline heredocs. Backslash literals get mangled inside a heredoc, and a hardcoded `/tmp/...` path inside a script is not MSYS-converted (only command-line arguments are); both bit on 2026-06-26. They live in one of three layouts: `scripts/windows/cleanup/` in a standalone `agentic-cleanup` checkout, `${XDG_DATA_HOME:-~/.local/share}/agentic-cleanup/scripts/windows/cleanup/` after installation, or `claude-config/scripts/windows/cleanup/` in the synced workspace. Resolve the directory once at the start of the run:
 
 ```bash
-# Workspace root = the OUTERMOST ancestor containing .claude, EXCLUDING $HOME.
-# Not the innermost: subprojects carry their own .claude, and stopping at the first
+# Workspace root = the OUTERMOST ancestor containing .claude, .opencode,
+# opencode.json, or opencode.jsonc,
+# EXCLUDING $HOME. Not the innermost: subprojects carry their own marker, and stopping at the first
 # one silently scopes every workspace category to a subtree (see Step 2).
 # Not the plain outermost either: ~/.claude is the user-level config, not a workspace
 # marker, so "take the last hit" resolves to $HOME. Both traps are real; see Step 2.
@@ -39,32 +44,55 @@ resolve_root() {
   home="$(cd "$HOME" 2>/dev/null && pwd -P)"
   d="$(pwd -P)"; best=""
   while [ -n "$d" ] && [ "$d" != "/" ]; do
-    if [ -e "$d/.claude" ] && [ "$d" != "$home" ]; then best="$d"; fi
+    if { [ -e "$d/.claude" ] || [ -e "$d/.opencode" ] || [ -f "$d/opencode.json" ] || [ -f "$d/opencode.jsonc" ]; } && [ "$d" != "$home" ]; then best="$d"; fi
     d="$(dirname "$d")"
   done
   printf '%s\n' "${best:-$(pwd -P)}"
 }
 root="$(resolve_root)"
+agentic_data="${AGENTIC_CLEANUP_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/agentic-cleanup}"
+claude_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+opencode_dir="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
 CLEANUP_SCRIPTS=""
-for cand in "$root/claude-config/scripts/windows/cleanup" "$root/scripts/windows/cleanup" "$HOME/.claude/cleanup-scripts"; do
+for cand in "$root/claude-config/scripts/windows/cleanup" "$root/agentic-cleanup/scripts/windows/cleanup" "$root/scripts/windows/cleanup" "$agentic_data/scripts/windows/cleanup"; do
   [ -f "$cand/wt_lookup.py" ] && CLEANUP_SCRIPTS="$cand" && break
 done
-[ -n "$CLEANUP_SCRIPTS" ] || CLEANUP_SCRIPTS="$(dirname "$(find "$root" "$HOME/.claude" -maxdepth 7 -path '*/wt_lookup.py' 2>/dev/null | grep -i cleanup | head -1)")"
+[ -n "$CLEANUP_SCRIPTS" ] || CLEANUP_SCRIPTS="$(dirname "$(find "$root" "$agentic_data" -maxdepth 7 -path '*/wt_lookup.py' 2>/dev/null | grep -i cleanup | head -1)")"
 CLEANUP_CONTRACTS=""
-for cand in "$root/claude-config/scripts/cleanup" "$root/scripts/cleanup" "$HOME/.claude/cleanup-contracts"; do
+for cand in "$root/claude-config/scripts/cleanup" "$root/agentic-cleanup/scripts/cleanup" "$root/scripts/cleanup" "$agentic_data/scripts/cleanup"; do
   [ -f "$cand/Cleanup.Contracts.psm1" ] && CLEANUP_CONTRACTS="$cand" && break
 done
 
-# A regular installed helper directory must be bound to the command/contracts
-# from the same release. A maintainer junction resolves elsewhere with pwd -P
-# and is covered by the two-checkout provenance check below instead.
-installed_helpers="$HOME/.claude/cleanup-scripts"
+# A regular installed payload must be bound to both runtime command copies.
+# A maintainer junction resolves elsewhere and is covered by provenance below.
+installed_helpers="$agentic_data/scripts/windows/cleanup"
 if [ "$CLEANUP_SCRIPTS" = "$installed_helpers" ] && \
    [ "$(cd "$installed_helpers" 2>/dev/null && pwd -P)" = "$(cd "$installed_helpers" 2>/dev/null && pwd -L)" ]; then
-  manifest="$HOME/.claude/cleanup-manifest.sha256"
+  manifest="$agentic_data/install-manifest.sha256"
   [ -f "$manifest" ] || { echo "STOP: installed cleanup manifest is missing; reinstall /cleanup"; exit 1; }
-  (cd "$HOME/.claude" && sha256sum -c --quiet cleanup-manifest.sha256) || \
+  manifest_paths=(
+    cleanup.md
+    scripts/windows/cleanup/{wt_lookup.py,find_targets.py,assert_list.py,live_paths.ps1,diskspace.ps1,run_wiztree.ps1,squirrel.ps1,appdata_orphans.ps1,winsdk.ps1,vs_orphans.ps1,scrub.ps1,scan.ps1,execute-plan.ps1,README.md}
+    scripts/cleanup/{Cleanup.Contracts.psm1,build-plan.ps1,validate-plan.ps1,render-scan.ps1,README.md,schemas/scan.schema.json,schemas/plan.schema.json,schemas/result.schema.json,policies/windows.v1.json}
+  )
+  [ "$(wc -l < "$manifest" | tr -d ' ')" -eq "${#manifest_paths[@]}" ] || \
+    { echo "STOP: installed cleanup manifest inventory is incomplete; reinstall /cleanup"; exit 1; }
+  for path in "${manifest_paths[@]}"; do
+    [ "$(awk -v path="$path" '$2 == path { n++ } END { print n + 0 }' "$manifest")" -eq 1 ] || \
+      { echo "STOP: installed cleanup manifest inventory is invalid: $path"; exit 1; }
+  done
+  if command -v sha256sum >/dev/null 2>&1; then
+    (cd "$agentic_data" && sha256sum -c --quiet install-manifest.sha256)
+  elif command -v shasum >/dev/null 2>&1; then
+    (cd "$agentic_data" && shasum -a 256 -c install-manifest.sha256 >/dev/null)
+  else
+    false
+  fi || \
     { echo "STOP: installed cleanup files are mixed or corrupt; reinstall /cleanup"; exit 1; }
+  for command_copy in "$claude_dir/commands/cleanup.md" "$opencode_dir/commands/cleanup.md"; do
+    [ -f "$command_copy" ] && cmp -s "$agentic_data/cleanup.md" "$command_copy" || \
+      { echo "STOP: runtime command copy is missing or does not match this release: $command_copy"; exit 1; }
+  done
 fi
 ```
 
@@ -76,12 +104,12 @@ These files exist in more than one place, all writable, and the resolver silentl
 echo "CLEANUP_SCRIPTS = $CLEANUP_SCRIPTS"
 
 # Maintainer machines carry two checkouts: claude-config (canonical, loaded via the
-# <workspace>/.claude/commands junction) and claude-cleanup (what install.sh publishes).
-cc="$root/claude-config"; cl="$root/claude-cleanup"
-same() { diff -q --strip-trailing-cr "$1" "$2" >/dev/null 2>&1; }   # NOT cmp — see below
+# <workspace>/.claude/commands junction) and agentic-cleanup (what install.sh publishes).
+cc="$root/claude-config"; cl="$root/agentic-cleanup"
+same() { diff -q --strip-trailing-cr "$1" "$2" >/dev/null 2>&1 || cmp -s "$1" "$2"; }   # See below
 if [ -d "$cc" ] && [ -d "$cl" ]; then
   drift=0
-  same "$cc/commands/cleanup.md" "$cl/.claude/commands/cleanup.md" || { echo "DRIFT: cleanup.md"; drift=1; }
+  same "$cc/commands/cleanup.md" "$cl/cleanup.md" || { echo "DRIFT: cleanup.md"; drift=1; }
   for f in "$cc/scripts/windows/cleanup"/*.py "$cc/scripts/windows/cleanup"/*.ps1; do
     [ -e "$f" ] || continue
     same "$f" "$cl/scripts/windows/cleanup/$(basename "$f")" || { echo "DRIFT: $(basename "$f")"; drift=1; }
@@ -95,11 +123,11 @@ if [ -d "$cc" ] && [ -d "$cl" ]; then
 fi
 ```
 
-**Compare with `diff --strip-trailing-cr`, never `cmp`.** Both repos are `core.autocrlf=true` with no `.gitattributes`: git stores LF and checkout writes CRLF, so a working-tree file is LF or CRLF depending purely on whether it arrived via `git checkout` or via a copy — and **git calls both clean**. A byte-exact `cmp` therefore reports DRIFT on files whose content is identical, and a check that cries wolf gets ignored, which is worse than no check. This was caught by testing the check rather than trusting it (2026-07-16): `git checkout -- wt_lookup.py` restored it as CRLF (993 bytes vs canonical's 966), and the first draft of this guard duly failed on a file that had not changed at all.
+**Compare Windows checkouts with `diff --strip-trailing-cr`, not byte-exact `cmp`.** Both repos are `core.autocrlf=true` with no `.gitattributes`: git stores LF and checkout writes CRLF, so a working-tree file is LF or CRLF depending purely on whether it arrived via `git checkout` or via a copy — and **git calls both clean**. The helper falls back to `cmp` only where `diff` lacks that option, which is safe for the ordinary LF checkouts on those platforms. This was caught by testing the check rather than trusting it (2026-07-16): `git checkout -- wt_lookup.py` restored it as CRLF (993 bytes vs canonical's 966), and the first draft of this guard duly failed on a file that had not changed at all.
 
-**Never let an install artifact shadow the source on a maintainer machine.** `install.sh` writes `~/.claude/commands/cleanup.md` and `~/.claude/cleanup-scripts/`. A user-level command **outranks the project junction**, so those downloads win over `claude-config` even though the junction is the intended path. On this workstation both were removed on 2026-07-16: the command copy is deleted (the junction now loads), and `~/.claude/cleanup-scripts` is a **directory junction** to `claude-config/scripts/windows/cleanup`, so it cannot drift. If `/cleanup` ever stops being available outside the workspace, that is why — restore it by re-running `install.sh`, and accept that you are then running a snapshot, not the source.
+**Never let an install artifact shadow the source on a maintainer machine.** The installers write global command copies for both runtimes plus a shared payload under the user data directory. A global Claude Code command **outranks the project junction**, while an OpenCode project command outranks its global copy. Test installers only with temporary `CLAUDE_CONFIG_DIR`, `XDG_CONFIG_HOME`, and `XDG_DATA_HOME` values; do not install snapshots over the canonical maintainer setup.
 
-**Why this is a hard stop and not a warning** (2026-07-16): the machine had been running a **26 June** download for three weeks. Its `find_targets.py` was missing `backs_mcp_server()` — the code filter that keeps live-MCP-server `node_modules` out of the candidate list, added 29 June *after* two book-power MCPs broke with `-32000` when a cleanup wiped their deps. The published `claude-cleanup` repo was stale too, so the download was a faithful copy of a stale source: **anyone who installed `/cleanup` got a tool missing its own safety fix.** Compounding it, the workspace-root walk-up (see the nested-`.claude` bug) mis-resolved `$root`, which is exactly what makes the resolver fall through candidates 1 and 2 to the installed copy at candidate 3. A stale copy plus a mis-scoped root silently disables a safety filter — and the only thing that prevented a repeat of 29 June was the user not picking that category.
+**Why this is a hard stop and not a warning** (2026-07-16): the machine had been running a **26 June** download for three weeks. Its `find_targets.py` was missing `backs_mcp_server()` — the code filter that keeps live-MCP-server `node_modules` out of the candidate list, added 29 June *after* two book-power MCPs broke with `-32000` when a cleanup wiped their deps. The published repository (then `claude-cleanup`, now `agentic-cleanup`) was stale too, so the download was a faithful copy of a stale source: **anyone who installed `/cleanup` got a tool missing its own safety fix.** Compounding it, the workspace-root walk-up (see the nested-`.claude` bug) mis-resolved `$root`, which is exactly what makes the resolver fall through candidates 1 and 2 to the installed copy at candidate 3. A stale copy plus a mis-scoped root silently disables a safety filter — and the only thing that prevented a repeat of 29 June was the user not picking that category.
 
 | Script | Purpose |
 |--------|---------|
@@ -121,7 +149,7 @@ PowerShell helpers: `powershell.exe -NoProfile -File "$(cygpath -w "$CLEANUP_SCR
 
 Create a temp directory for cleanup scripts (on Windows, `/tmp/` maps to `%TEMP%` which gets cleaned by the temp files category — using a subdirectory lets us exclude it):
 ```bash
-mkdir -p /tmp/claude-cleanup
+mkdir -p /tmp/agentic-cleanup
 ```
 
 Run:
@@ -137,7 +165,7 @@ Determine platform:
 For `--structured-preview`, require Windows, PowerShell 7 (`pwsh`), and both resolved helper directories, then run the committed evidence path and stop:
 
 ```bash
-scan="/tmp/claude-cleanup/scan-$(date +%s).json"
+scan="/tmp/agentic-cleanup/scan-$(date +%s).json"
 published_args=()
 [ -d "$cl/scripts/windows/cleanup" ] && \
   published_args=(-PublishedHelpersDirectory "$(cygpath -w "$cl/scripts/windows/cleanup")")
@@ -181,18 +209,18 @@ Concurrency is a **safety** condition, not just an accounting nuisance. Each ext
 
 Use the `resolve_root` function from *Helper scripts* — **do not re-derive this walk inline.** `$WORKSPACE_ROOT` is the `root` it returns; it feeds the node_modules and build-artifact categories and the `$CLEANUP_SCRIPTS` probe.
 
-The rule is: **the outermost ancestor containing `.claude`, excluding `$HOME`.** Both halves matter, and each corresponds to a real failure:
+The rule is: **the outermost ancestor containing `.claude`, `.opencode`, `opencode.json`, or `opencode.jsonc`, excluding `$HOME`.** Both halves matter, and each corresponds to a real failure:
 
-- **Not the innermost.** Subprojects carry their own `.claude/`. Stopping at the first hit scopes every workspace category to whatever subtree you happen to be standing in. On 2026-07-16 the session had `cd`'d into `claude-project/scenius-digest` for an unrelated task, so the walk halted there and the real root — `claude-project` — was never reached. **The failure is silent: no error, just a small number**, which reads as a clean workspace rather than a mis-scoped scan. Worse, candidates 1 and 2 of the `$CLEANUP_SCRIPTS` probe are `$root`-relative, so a mis-scoped root falls through to `~/.claude/cleanup-scripts` — whatever `install.sh` last downloaded, which on that run was a `find_targets.py` with no live-MCP filter. A wrong root doesn't just under-report; **it can silently swap the safety-filtered script for an unfiltered one.**
+- **Not the innermost.** Subprojects carry their own Claude Code or OpenCode configuration. Stopping at the first hit scopes every workspace category to whatever subtree you happen to be standing in. On 2026-07-16 the session had `cd`'d into `claude-project/scenius-digest` for an unrelated task, so the walk halted there and the real root — `claude-project` — was never reached. **The failure is silent: no error, just a small number**, which reads as a clean workspace rather than a mis-scoped scan. Worse, the helper probe is `$root`-relative, so a wrong root can silently select a different installed helper copy. A wrong root doesn't just under-report; **it can silently swap the safety-filtered script for an unfiltered one.**
 - **Not the plain outermost either.** `~/.claude` **is** a `.claude` directory, so "keep walking and take the last hit" resolves the root to **`$HOME`** — verified, not hypothetical. That is worse than the bug it fixes: `find_targets.py` filters purely by path prefix, so a `$HOME` root sweeps `AppData/Roaming/npm/node_modules` (globally installed CLIs), `AppData/Local/Microsoft/TypeScript/*/node_modules` (the LSP), and `npm-cache/_npx/*/node_modules` (**live MCP servers**). None have a `.git`, so all read as inactive and get offered. `backs_mcp_server()` rescues the `_npx` ones; nothing rescues your global npm packages or the TypeScript LSP.
 
 **Announce the resolution, and name the subproject you walked past** — a root that surprises the user must be visible, since the whole failure mode is silence:
 
 ```bash
 echo "workspace root : $root"
-nearest="$(pwd -P)"; while [ "$nearest" != "/" ] && [ ! -e "$nearest/.claude" ]; do nearest="$(dirname "$nearest")"; done
+nearest="$(pwd -P)"; while [ "$nearest" != "/" ] && [ ! -e "$nearest/.claude" ] && [ ! -e "$nearest/.opencode" ] && [ ! -f "$nearest/opencode.json" ] && [ ! -f "$nearest/opencode.jsonc" ]; do nearest="$(dirname "$nearest")"; done
 [ -n "$nearest" ] && [ "$nearest" != "/" ] && [ "$nearest" != "$root" ] && \
-  echo "  note: nearer .claude at $nearest (subproject) — scanning the WHOLE workspace, not just it"
+  echo "  note: nearer agent config at $nearest (subproject) — scanning the WHOLE workspace, not just it"
 ```
 
 **Guard against profile-wide roots.** If `resolve_root` falls back to the cwd and that cwd is `$HOME`, a drive root, or `/`, the workspace-scoped categories would enumerate the user profile. Skip them — the rest of the run is still valid:
@@ -225,10 +253,10 @@ find "/c/Program Files/WizTree" "/c/Program Files (x86)/WizTree" "$LOCALAPPDATA/
 
 Also check: `command -v WizTree64` and `where.exe WizTree64.exe 2>/dev/null`
 
-**If WizTree is found**, run the export. **CRITICAL:** WizTree's instant scan reads the NTFS Master File Table, which **requires elevation**. Without admin it silently falls back to per-file enumeration that is as slow as `Get-ChildItem` and **times out on a large or near-full drive** (Windows, 2026-06-23: `/admin=0` non-elevated hit the 2-5 min tool timeout with no CSV — and so did plain `du`/`Get-ChildItem -Recurse` sizing). So run it **elevated** (one UAC prompt) via the native PowerShell tool, using a Windows path for the export (the Windows form of `/tmp/claude-cleanup/wiztree.csv`, i.e. `%TEMP%\claude-cleanup\wiztree.csv`):
+**If WizTree is found**, run the export. **CRITICAL:** WizTree's instant scan reads the NTFS Master File Table, which **requires elevation**. Without admin it silently falls back to per-file enumeration that is as slow as `Get-ChildItem` and **times out on a large or near-full drive** (Windows, 2026-06-23: `/admin=0` non-elevated hit the 2-5 min tool timeout with no CSV — and so did plain `du`/`Get-ChildItem -Recurse` sizing). So run it **elevated** (one UAC prompt) via the native PowerShell tool, using a Windows path for the export (the Windows form of `/tmp/agentic-cleanup/wiztree.csv`, i.e. `%TEMP%\agentic-cleanup\wiztree.csv`):
 
 ```bash
-powershell.exe -NoProfile -File "$(cygpath -w "$CLEANUP_SCRIPTS/run_wiztree.ps1")" -WizTree "<path_to_WizTree64.exe>" -OutCsv "$(cygpath -w /tmp/claude-cleanup/wiztree.csv)"
+powershell.exe -NoProfile -File "$(cygpath -w "$CLEANUP_SCRIPTS/run_wiztree.ps1")" -WizTree "<path_to_WizTree64.exe>" -OutCsv "$(cygpath -w /tmp/agentic-cleanup/wiztree.csv)"
 ```
 
 `run_wiztree.ps1` encodes the elevation (it self-elevates via `Start-Process -Verb RunAs` and runs `/admin=1 /silent`), so the `/admin=0` timeout can't recur.
@@ -238,7 +266,7 @@ Then **verify the CSV** (a full-drive export is typically 100-300 MB; this drive
 **If WizTree is NOT found**, check if a recent WizTree CSV already exists in the workspace (the user may have exported one manually):
 
 ```bash
-find "${OPENCODE_WORKSPACE_ROOT:-$PWD}/claude-cleanup" -maxdepth 1 -name "WizTree*.csv" -newer /tmp/claude-cleanup 2>/dev/null | head -1
+find "${OPENCODE_WORKSPACE_ROOT:-$PWD}/agentic-cleanup" -maxdepth 1 -name "WizTree*.csv" -newer /tmp/agentic-cleanup 2>/dev/null | head -1
 ```
 
 If a CSV is found (either exported or pre-existing), use the committed `wt_lookup.py` (see *Helper scripts*) for instant size lookups — it reads the CSV path from `argv[1]` and query paths from stdin. Test it: pipe a known path and confirm a non-zero size.
@@ -246,7 +274,7 @@ If a CSV is found (either exported or pre-existing), use the committed `wt_looku
 **Using WizTree data in categories:** When WizTree data is available, replace all PowerShell `Get-ChildItem -Recurse` size measurements with:
 
 ```bash
-echo "C:\path\to\directory" | python "$CLEANUP_SCRIPTS/wt_lookup.py" /tmp/claude-cleanup/wiztree.csv
+echo "C:\path\to\directory" | python "$CLEANUP_SCRIPTS/wt_lookup.py" /tmp/agentic-cleanup/wiztree.csv
 ```
 
 Output: `sizeMB|path`
@@ -260,7 +288,7 @@ You can pipe multiple paths at once (one per line) for batch lookups. This turns
 printf '%s\n' \
 'C:\Users\temaz\AppData\Roaming\Slack\Cache' \
 'C:\Users\temaz\AppData\Roaming\Linear\Cache' \
-| python "$CLEANUP_SCRIPTS/wt_lookup.py" /tmp/claude-cleanup/wiztree.csv
+| python "$CLEANUP_SCRIPTS/wt_lookup.py" /tmp/agentic-cleanup/wiztree.csv
 
 # WRONG — heredocs with backslash paths cause syntax errors:
 # cat << 'EOF' | python ...
@@ -290,7 +318,7 @@ These run on every OS. Each category's measurement and cleanup logic branches on
 
 **All platforms.** Requires workspace root from Step 2.
 
-**With a WizTree CSV, enumerate instantly with the committed finder:** `python "$CLEANUP_SCRIPTS/find_targets.py" /tmp/claude-cleanup/wiztree.csv "$WORKSPACE_ROOT"`. The `nm|<mb>|<path>` lines are the candidates — already **top-level** and ≥10 MB, so no filesystem walk and no per-path size lookup needed (the `artifact:<name>|<mb>|<path>` lines feed the Build Artifacts category). Without a CSV, fall back to a filesystem walk for top-level `node_modules` directories under the workspace root.
+**With a WizTree CSV, enumerate instantly with the committed finder:** `python "$CLEANUP_SCRIPTS/find_targets.py" /tmp/agentic-cleanup/wiztree.csv "$WORKSPACE_ROOT"`. The `nm|<mb>|<path>` lines are the candidates — already **top-level** and ≥10 MB, so no filesystem walk and no per-path size lookup needed (the `artifact:<name>|<mb>|<path>` lines feed the Build Artifacts category). Without a CSV, fall back to a filesystem walk for top-level `node_modules` directories under the workspace root.
 
 For each candidate:
 
@@ -507,13 +535,14 @@ Measure `%TEMP%` and `C:\Windows\Temp` (WizTree or fallback PowerShell).
 
 Skip if total < 50 MB.
 
-Clean command (Step 6): Exclude **two** subdirectories, not one. Files locked by running processes will be skipped automatically:
+Clean command (Step 6): Exclude **three** subdirectories during the rename migration. Files locked by running processes will be skipped automatically:
 
-* `claude-cleanup` — this run's scratch (holds the ~200 MB WizTree CSV).
+* `agentic-cleanup` — this run's scratch (holds the ~200 MB WizTree CSV).
+* `claude-cleanup` — a pre-rename cleanup run's scratch; preserve it while older installed sessions may still be active.
 * `claude` — **Claude Code's own scratch.** `%TEMP%\claude\<project-hash>\` holds the live session's task-output files and scratchpad. Deleting it kills in-flight commands: the running Bash tool's output file disappears and the call dies with `output file could not be read (ENOENT)`. Observed 2026-07-16 — it survived only because the harness had it open, so `scrub.ps1` returned `FAIL: Access to the path is denied`. Do not rely on that lock; exclude it by name.
 
 ```powershell
-Get-ChildItem "$env:TEMP" -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -notin @('claude-cleanup','claude') } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+Get-ChildItem "$env:TEMP" -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -notin @('agentic-cleanup','claude-cleanup','claude') } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item "$env:SystemRoot\Temp\*" -Recurse -Force -ErrorAction SilentlyContinue
 ```
 
@@ -1148,13 +1177,13 @@ The same trap has a Python cousin: `r'\Claude\'` is a SyntaxError (a raw string 
 **Assert the list with `assert_list.py` before every `scrub.ps1` call. Never delete off an unverified list.**
 
 ```bash
-powershell.exe -NoProfile -File "$(cygpath -w "$CLEANUP_SCRIPTS/live_paths.ps1")" > /tmp/claude-cleanup/live.txt
+powershell.exe -NoProfile -File "$(cygpath -w "$CLEANUP_SCRIPTS/live_paths.ps1")" > /tmp/agentic-cleanup/live.txt
 python "$CLEANUP_SCRIPTS/assert_list.py" "$(cygpath -w <listfile>)" \
   --require 'electron cache=\AppData\Roaming\' \
   --require 'user temp=\AppData\Local\Temp\' \
   --forbid  'Claude cache=\Claude\' \
   --forbid  'CC scratch=\Temp\claude\' \
-  --live    "$(cygpath -w /tmp/claude-cleanup/live.txt)"   || exit 1
+  --live    "$(cygpath -w /tmp/agentic-cleanup/live.txt)"   || exit 1
 ```
 
 One `--require` per category the user selected, one `--forbid` per thing you excluded by hand. It fails on a require bucket matching **0** lines, on any forbid hit, on an empty list, and on any line matching no bucket. **A selected category showing `0` is a bug, not a clean bill of health** — that is the whole point.
@@ -1172,7 +1201,7 @@ It does **not** subsume `find_targets.py`'s `backs_mcp_server()`. A book-power M
 **Elevated cleanup (Windows):** Several categories require admin privileges. When the user selects any elevated category, batch all elevated operations into a single PowerShell script and run it with `Start-Process -Verb RunAs` (triggers one UAC prompt instead of many):
 
 ```bash
-cat > /tmp/claude-cleanup/admin_cleanup.ps1 << 'PS1'
+cat > /tmp/agentic-cleanup/admin_cleanup.ps1 << 'PS1'
 # ... all elevated Remove-Item commands ...
 PS1
 powershell.exe -Command "Start-Process powershell.exe -ArgumentList '-File','<windows_path_to_script>' -Verb RunAs -Wait"
@@ -1199,7 +1228,7 @@ powershell.exe -Command "Start-Process powershell.exe -ArgumentList '-File','<wi
 | App caches | `rm -rf <each large cache directory path>` |
 | Windows.old | **Cannot be deleted via CLI.** Instruct the user to use Settings > System > Storage > Temporary files > Previous Windows installation(s), or Disk Cleanup as Administrator. |
 | Delivery Optimization | **Elevated:** `Stop-Service DoSvc -Force; Remove-Item ...\Cache\* -Recurse -Force; Start-Service DoSvc`. If access denied, instruct user to use Settings > Storage > Temporary files. |
-| Windows Temp files | **Elevated for system temp.** User temp: PowerShell `Get-ChildItem "$env:TEMP" | Where-Object { $_.Name -notin @('claude-cleanup','claude') } | Remove-Item -Recurse -Force` — **both** exclusions are required; `claude` is Claude Code's own scratch and deleting it kills the running command. System temp: **elevated** `Remove-Item "$env:SystemRoot\Temp\*" -Recurse -Force` |
+| Windows Temp files | **Elevated for system temp.** User temp: PowerShell `Get-ChildItem "$env:TEMP" | Where-Object { $_.Name -notin @('agentic-cleanup','claude-cleanup','claude') } | Remove-Item -Recurse -Force` — all three exclusions are required during the rename migration; `claude` is Claude Code's own scratch and deleting it kills the running command. System temp: **elevated** `Remove-Item "$env:SystemRoot\Temp\*" -Recurse -Force` |
 | Browser caches | `rm -rf <each cache directory path>/*` (contents only). Warn user to close browsers first. |
 | Electron app caches | `rm -rf <each cache directory path>/*` (contents only). Warn user to close affected apps first. |
 | Stale updater files | `rm -rf <each updater directory path>/*` for directories, `rm -f <path>` for individual .nupkg files. |
@@ -1228,10 +1257,10 @@ powershell.exe -Command "Start-Process powershell.exe -ArgumentList '-File','<wi
 
 ### Step 7: Clean up scratch + Summary
 
-**Remove the scratch dir.** The WizTree CSV alone is ~200 MB; leaving `claude-cleanup` in `%TEMP%` shrinks the measured reclaim. The bash hook blocks `rm -rf /tmp/claude-cleanup`, so delete it via PowerShell with an explicit Windows path:
+**Remove the scratch dir.** The WizTree CSV alone is ~200 MB; leaving `agentic-cleanup` in `%TEMP%` shrinks the measured reclaim. The bash hook blocks `rm -rf /tmp/agentic-cleanup`, so delete it via PowerShell with an explicit Windows path:
 
 ```bash
-powershell.exe -NoProfile -Command "Remove-Item -LiteralPath \"\$env:TEMP\claude-cleanup\" -Recurse -Force -ErrorAction SilentlyContinue"
+powershell.exe -NoProfile -Command "Remove-Item -LiteralPath \"\$env:TEMP\agentic-cleanup\" -Recurse -Force -ErrorAction SilentlyContinue"
 ```
 
 **Re-measure** free space with `diskspace.ps1` (same helper as Step 1).
