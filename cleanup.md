@@ -63,7 +63,7 @@ for cand in "$root/claude-config/scripts/cleanup" "$root/agentic-cleanup/scripts
   [ -f "$cand/Cleanup.Contracts.psm1" ] && CLEANUP_CONTRACTS="$cand" && break
 done
 
-# A regular installed payload must be bound to both runtime command copies.
+# A regular installed payload must be bound to every selected runtime command copy.
 # A maintainer junction resolves elsewhere and is covered by provenance below.
 installed_helpers="$agentic_data/scripts/windows/cleanup"
 if [ "$CLEANUP_SCRIPTS" = "$installed_helpers" ] && \
@@ -89,10 +89,23 @@ if [ "$CLEANUP_SCRIPTS" = "$installed_helpers" ] && \
     false
   fi || \
     { echo "STOP: installed cleanup files are mixed or corrupt; reinstall /cleanup"; exit 1; }
-  for command_copy in "$claude_dir/commands/cleanup.md" "$opencode_dir/commands/cleanup.md"; do
+  runtime_state="$agentic_data/installed-runtimes"
+  [ -f "$runtime_state" ] || { echo "STOP: installed runtime selection is missing; reinstall /cleanup"; exit 1; }
+  installed_runtimes=()
+  while IFS= read -r runtime; do
+    case "$runtime" in
+      claude) command_copy="$claude_dir/commands/cleanup.md" ;;
+      opencode) command_copy="$opencode_dir/commands/cleanup.md" ;;
+      *) echo "STOP: installed runtime selection is invalid: $runtime"; exit 1 ;;
+    esac
+    for selected in "${installed_runtimes[@]}"; do
+      [ "$selected" != "$runtime" ] || { echo "STOP: installed runtime selection is duplicated: $runtime"; exit 1; }
+    done
+    installed_runtimes+=("$runtime")
     [ -f "$command_copy" ] && cmp -s "$agentic_data/cleanup.md" "$command_copy" || \
       { echo "STOP: runtime command copy is missing or does not match this release: $command_copy"; exit 1; }
-  done
+  done < "$runtime_state"
+  [ "${#installed_runtimes[@]}" -gt 0 ] || { echo "STOP: no installed cleanup runtime is selected; reinstall /cleanup"; exit 1; }
 fi
 ```
 
@@ -125,7 +138,7 @@ fi
 
 **Compare Windows checkouts with `diff --strip-trailing-cr`, not byte-exact `cmp`.** Both repos are `core.autocrlf=true` with no `.gitattributes`: git stores LF and checkout writes CRLF, so a working-tree file is LF or CRLF depending purely on whether it arrived via `git checkout` or via a copy — and **git calls both clean**. The helper falls back to `cmp` only where `diff` lacks that option, which is safe for the ordinary LF checkouts on those platforms. This was caught by testing the check rather than trusting it (2026-07-16): `git checkout -- wt_lookup.py` restored it as CRLF (993 bytes vs canonical's 966), and the first draft of this guard duly failed on a file that had not changed at all.
 
-**Never let an install artifact shadow the source on a maintainer machine.** The installers write global command copies for both runtimes plus a shared payload under the user data directory. A global Claude Code command **outranks the project junction**, while an OpenCode project command outranks its global copy. Test installers only with temporary `CLAUDE_CONFIG_DIR`, `XDG_CONFIG_HOME`, and `XDG_DATA_HOME` values; do not install snapshots over the canonical maintainer setup.
+**Never let an install artifact shadow the source on a maintainer machine.** The installers write the selected global runtime command copies plus a shared payload under the user data directory. A global Claude Code command **outranks the project junction**, while an OpenCode project command outranks its global copy. Test installers only with temporary `CLAUDE_CONFIG_DIR`, `XDG_CONFIG_HOME`, and `XDG_DATA_HOME` values; do not install snapshots over the canonical maintainer setup.
 
 **Why this is a hard stop and not a warning** (2026-07-16): the machine had been running a **26 June** download for three weeks. Its `find_targets.py` was missing `backs_mcp_server()` — the code filter that keeps live-MCP-server `node_modules` out of the candidate list, added 29 June *after* two book-power MCPs broke with `-32000` when a cleanup wiped their deps. The published repository (then `claude-cleanup`, now `agentic-cleanup`) was stale too, so the download was a faithful copy of a stale source: **anyone who installed `/cleanup` got a tool missing its own safety fix.** Compounding it, the workspace-root walk-up (see the nested-`.claude` bug) mis-resolved `$root`, which is exactly what makes the resolver fall through candidates 1 and 2 to the installed copy at candidate 3. A stale copy plus a mis-scoped root silently disables a safety filter — and the only thing that prevented a repeat of 29 June was the user not picking that category.
 
