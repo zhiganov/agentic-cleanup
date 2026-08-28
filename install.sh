@@ -60,7 +60,8 @@ fi
 # Publish the manifest last so an interrupted update fails closed.
 for target in "$DATA_DIR" "$DATA_DIR/cleanup.md" "$DATA_DIR/install-manifest.sha256" "$DATA_DIR/installed-runtimes" \
               "$DATA_DIR/scripts" "$DATA_DIR/scripts/windows" "$DATA_DIR/scripts/windows/cleanup" \
-              "$DATA_DIR/scripts/cleanup" "$DATA_DIR/scripts/cleanup/schemas" "$DATA_DIR/scripts/cleanup/policies"; do
+              "$DATA_DIR/scripts/cleanup" "$DATA_DIR/scripts/cleanup/schemas" "$DATA_DIR/scripts/cleanup/policies" \
+              "$CLAUDE_DIR/commands/cleanup.md" "$OPENCODE_DIR/commands/cleanup.md"; do
   [ ! -L "$target" ] || { echo "Refusing to overwrite symlink: $target" >&2; exit 1; }
 done
 if [ "$install_claude" -eq 1 ]; then
@@ -74,26 +75,34 @@ if [ "$install_opencode" -eq 1 ]; then
   done
 fi
 
+if [ "$install_claude" -eq 0 ] && [ -e "$CLAUDE_DIR/commands/cleanup.md" ] && \
+   ! cmp -s "$stage/cleanup.md" "$CLAUDE_DIR/commands/cleanup.md"; then
+  echo "Refusing to leave a stale Claude Code command: $CLAUDE_DIR/commands/cleanup.md. Install all runtimes or remove that command first." >&2
+  exit 1
+fi
+if [ "$install_opencode" -eq 0 ] && [ -e "$OPENCODE_DIR/commands/cleanup.md" ] && \
+   ! cmp -s "$stage/cleanup.md" "$OPENCODE_DIR/commands/cleanup.md"; then
+  echo "Refusing to leave a stale OpenCode command: $OPENCODE_DIR/commands/cleanup.md. Install all runtimes or remove that command first." >&2
+  exit 1
+fi
+
 mkdir -p "$DATA_DIR/scripts/windows/cleanup" "$DATA_DIR/scripts/cleanup"
 cp "$stage/cleanup.md" "$DATA_DIR/cleanup.md"
 cp -R "$stage/scripts/windows/cleanup/." "$DATA_DIR/scripts/windows/cleanup/"
 cp -R "$stage/scripts/cleanup/." "$DATA_DIR/scripts/cleanup/"
-selected_runtimes=()
 if [ "$install_claude" -eq 1 ]; then
   mkdir -p "$CLAUDE_DIR/commands"
   cp "$stage/cleanup.md" "$CLAUDE_DIR/commands/cleanup.md"
   cmp -s "$DATA_DIR/cleanup.md" "$CLAUDE_DIR/commands/cleanup.md"
-  selected_runtimes+=(claude)
   echo "Installed /cleanup for Claude Code -> $CLAUDE_DIR/commands/cleanup.md"
 fi
 if [ "$install_opencode" -eq 1 ]; then
   mkdir -p "$OPENCODE_DIR/commands"
   cp "$stage/cleanup.md" "$OPENCODE_DIR/commands/cleanup.md"
   cmp -s "$DATA_DIR/cleanup.md" "$OPENCODE_DIR/commands/cleanup.md"
-  selected_runtimes+=(opencode)
   echo "Installed /cleanup for OpenCode V2 -> $OPENCODE_DIR/commands/cleanup.md"
 fi
-printf '%s\n' "${selected_runtimes[@]}" > "$DATA_DIR/installed-runtimes"
+rm -f "$DATA_DIR/installed-runtimes"
 cp "$stage/install-manifest.sha256" "$DATA_DIR/install-manifest.sha256"
 
 echo "Installed verified shared payload -> $DATA_DIR"

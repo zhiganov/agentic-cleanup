@@ -52,13 +52,25 @@ try {
   $protectedTargets = @(
     $DataDir, "$DataDir\cleanup.md", "$DataDir\install-manifest.sha256", "$DataDir\installed-runtimes",
     "$DataDir\scripts", "$DataDir\scripts\windows", "$DataDir\scripts\windows\cleanup",
-    "$DataDir\scripts\cleanup", "$DataDir\scripts\cleanup\schemas", "$DataDir\scripts\cleanup\policies"
+    "$DataDir\scripts\cleanup", "$DataDir\scripts\cleanup\schemas", "$DataDir\scripts\cleanup\policies",
+    $claudeCommand, $openCodeCommand
   )
-  if ($installClaude) { $protectedTargets += @($ClaudeDir, (Split-Path -Parent $claudeCommand), $claudeCommand) }
-  if ($installOpenCode) { $protectedTargets += @($OpenCodeDir, (Split-Path -Parent $openCodeCommand), $openCodeCommand) }
+  if ($installClaude) { $protectedTargets += @($ClaudeDir, (Split-Path -Parent $claudeCommand)) }
+  if ($installOpenCode) { $protectedTargets += @($OpenCodeDir, (Split-Path -Parent $openCodeCommand)) }
   foreach ($target in $protectedTargets) {
     if ((Test-Path -LiteralPath $target) -and ((Get-Item -LiteralPath $target -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
       throw "Refusing to overwrite cleanup install reparse point: $target"
+    }
+  }
+
+  $stagedPayloadHash = (Get-FileHash -LiteralPath "$stage\cleanup.md" -Algorithm SHA256).Hash
+  foreach ($unselectedCommand in @(
+    [pscustomobject]@{ Selected = $installClaude; Path = $claudeCommand; Runtime = 'Claude Code' },
+    [pscustomobject]@{ Selected = $installOpenCode; Path = $openCodeCommand; Runtime = 'OpenCode' }
+  )) {
+    if (-not $unselectedCommand.Selected -and (Test-Path -LiteralPath $unselectedCommand.Path) -and
+        (Get-FileHash -LiteralPath $unselectedCommand.Path -Algorithm SHA256).Hash -ne $stagedPayloadHash) {
+      throw "Refusing to leave a stale $($unselectedCommand.Runtime) command: $($unselectedCommand.Path). Install all runtimes or remove that command first."
     }
   }
 
@@ -67,22 +79,19 @@ try {
   Copy-Item -Path "$stage\scripts\windows\cleanup\*" -Destination "$DataDir\scripts\windows\cleanup" -Recurse -Force
   Copy-Item -Path "$stage\scripts\cleanup\*" -Destination "$DataDir\scripts\cleanup" -Recurse -Force
   $payloadHash = (Get-FileHash -LiteralPath "$DataDir\cleanup.md" -Algorithm SHA256).Hash
-  $selectedRuntimes = [Collections.Generic.List[string]]::new()
   if ($installClaude) {
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $claudeCommand) | Out-Null
     Copy-Item -LiteralPath "$stage\cleanup.md" -Destination $claudeCommand -Force
     if ((Get-FileHash -LiteralPath $claudeCommand -Algorithm SHA256).Hash -ne $payloadHash) { throw 'Claude Code command copy does not match the verified shared payload' }
-    $selectedRuntimes.Add('claude')
     Write-Host "Installed /cleanup for Claude Code -> $claudeCommand"
   }
   if ($installOpenCode) {
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $openCodeCommand) | Out-Null
     Copy-Item -LiteralPath "$stage\cleanup.md" -Destination $openCodeCommand -Force
     if ((Get-FileHash -LiteralPath $openCodeCommand -Algorithm SHA256).Hash -ne $payloadHash) { throw 'OpenCode command copy does not match the verified shared payload' }
-    $selectedRuntimes.Add('opencode')
     Write-Host "Installed /cleanup for OpenCode V2 -> $openCodeCommand"
   }
-  [IO.File]::WriteAllText("$DataDir\installed-runtimes", (($selectedRuntimes -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
+  Remove-Item -LiteralPath "$DataDir\installed-runtimes" -Force -ErrorAction SilentlyContinue
   Copy-Item -LiteralPath "$stage\install-manifest.sha256" -Destination "$DataDir\install-manifest.sha256" -Force
 } finally {
   Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
