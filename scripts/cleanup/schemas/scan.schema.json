@@ -1,0 +1,316 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/zhiganov/claude-config/scripts/cleanup/schemas/scan.schema.json",
+  "title": "Cleanup Scan",
+  "description": "Immutable evidence and candidate inventory produced by a cleanup scan. This document never authorizes deletion.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "runId",
+    "createdAt",
+    "arguments",
+    "platform",
+    "workspace",
+    "helpers",
+    "diskBaseline",
+    "measurement",
+    "sessionCensus",
+    "categories",
+    "warnings",
+    "failures"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "runId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "arguments": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "platform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["family", "uname"],
+      "properties": {
+        "family": { "enum": ["windows", "linux", "macos"] },
+        "uname": { "type": "string", "minLength": 1 },
+        "distribution": { "type": ["string", "null"] }
+      }
+    },
+    "workspace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cwd", "root", "scoped", "resolution"],
+      "properties": {
+        "cwd": { "$ref": "#/$defs/absolutePath" },
+        "root": {
+          "anyOf": [
+            { "$ref": "#/$defs/absolutePath" },
+            { "type": "null" }
+          ]
+        },
+        "scoped": { "type": "boolean" },
+        "resolution": {
+          "enum": ["outermost-marker-excluding-home", "cwd-fallback", "profile-root-rejected"]
+        },
+        "nearerMarker": {
+          "anyOf": [
+            { "$ref": "#/$defs/absolutePath" },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "helpers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["directory", "provenance"],
+      "properties": {
+        "directory": { "$ref": "#/$defs/absolutePath" },
+        "provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "canonicalDirectory"],
+          "properties": {
+            "status": { "enum": ["canonical-only", "matched-published", "failed"] },
+            "canonicalDirectory": { "$ref": "#/$defs/absolutePath" },
+            "publishedDirectory": {
+              "anyOf": [
+                { "$ref": "#/$defs/absolutePath" },
+                { "type": "null" }
+              ]
+            },
+            "digestAlgorithm": { "const": "sha256" },
+            "canonicalDigest": { "$ref": "#/$defs/sha256" },
+            "publishedDigest": {
+              "anyOf": [
+                { "$ref": "#/$defs/sha256" },
+                { "type": "null" }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "diskBaseline": { "$ref": "#/$defs/diskSnapshot" },
+    "measurement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "capturedAt"],
+      "properties": {
+        "source": { "enum": ["wiztree", "filesystem", "tool-native", "mixed"] },
+        "capturedAt": { "type": "string", "format": "date-time" },
+        "snapshotPath": {
+          "anyOf": [
+            { "$ref": "#/$defs/absolutePath" },
+            { "type": "null" }
+          ]
+        },
+        "snapshotBytes": { "$ref": "#/$defs/bytes" }
+      }
+    },
+    "sessionCensus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "capturedAt", "sessions"],
+      "properties": {
+        "status": { "enum": ["complete", "partial", "unsupported", "failed"] },
+        "capturedAt": { "type": "string", "format": "date-time" },
+        "sessions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["runtime", "pid", "serverCount"],
+            "properties": {
+              "runtime": { "enum": ["claude-code", "opencode", "other"] },
+              "pid": { "type": "integer", "minimum": 1 },
+              "sessionId": { "type": ["string", "null"] },
+              "serverCount": { "type": "integer", "minimum": 0 }
+            }
+          }
+        },
+        "limitations": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "categories": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/category" }
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/message" }
+    },
+    "failures": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/message" }
+    }
+  },
+  "$defs": {
+    "absolutePath": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Canonical absolute path in the native platform form."
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "bytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "nullableBytes": {
+      "anyOf": [
+        { "$ref": "#/$defs/bytes" },
+        { "type": "null" }
+      ]
+    },
+    "diskSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capturedAt", "freeBytes", "totalBytes"],
+      "properties": {
+        "capturedAt": { "type": "string", "format": "date-time" },
+        "freeBytes": { "$ref": "#/$defs/bytes" },
+        "totalBytes": { "$ref": "#/$defs/bytes" }
+      }
+    },
+    "sizes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["logicalBytes", "estimatedReclaimableBytes", "protectedBytes"],
+      "properties": {
+        "logicalBytes": { "$ref": "#/$defs/bytes" },
+        "estimatedReclaimableBytes": { "$ref": "#/$defs/nullableBytes" },
+        "protectedBytes": { "$ref": "#/$defs/bytes" }
+      }
+    },
+    "message": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+        "message": { "type": "string", "minLength": 1 },
+        "categoryId": { "type": ["string", "null"] },
+        "itemId": { "type": ["string", "null"] }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "source", "value"],
+      "properties": {
+        "kind": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+        "source": { "type": "string", "minLength": 1 },
+        "value": { "type": ["string", "number", "boolean", "null"] }
+      }
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resourceId", "kind", "logicalBytes", "protected"],
+      "properties": {
+        "resourceId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._:-]*$" },
+        "kind": { "enum": ["file", "directory", "tool-managed", "manual"] },
+        "canonicalPath": {
+          "anyOf": [
+            { "$ref": "#/$defs/absolutePath" },
+            { "type": "null" }
+          ]
+        },
+        "logicalBytes": { "$ref": "#/$defs/bytes" },
+        "protected": { "type": "boolean" }
+      }
+    },
+    "operationPreview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policyId", "mode", "elevated"],
+      "properties": {
+        "policyId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+        "mode": {
+          "enum": ["whole-directory", "contents-only", "single-file", "tool-command", "manual-only"]
+        },
+        "elevated": { "type": "boolean" }
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "itemId",
+        "displayName",
+        "disposition",
+        "sizes",
+        "resources",
+        "operationPreview",
+        "evidence",
+        "riskFlags",
+        "requiresPerItemConfirmation"
+      ],
+      "properties": {
+        "itemId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._:-]*$" },
+        "displayName": { "type": "string", "minLength": 1 },
+        "disposition": {
+          "enum": ["eligible", "skipped-active", "skipped-fresh", "skipped-protected", "manual-only"]
+        },
+        "sizes": { "$ref": "#/$defs/sizes" },
+        "resources": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/resource" }
+        },
+        "operationPreview": { "$ref": "#/$defs/operationPreview" },
+        "evidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/evidence" }
+        },
+        "riskFlags": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" }
+        },
+        "requiresPerItemConfirmation": { "type": "boolean" },
+        "affectedApplications": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "category": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["categoryId", "label", "status", "sizes", "items", "warnings"],
+      "properties": {
+        "categoryId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+        "label": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["found", "empty", "skipped", "failed"] },
+        "statusReason": { "type": ["string", "null"] },
+        "sizes": { "$ref": "#/$defs/sizes" },
+        "items": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/candidate" }
+        },
+        "warnings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/message" }
+        }
+      }
+    }
+  }
+}

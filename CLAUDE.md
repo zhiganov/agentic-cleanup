@@ -15,6 +15,7 @@ This is primarily a **slash command repo**. The core product is a single markdow
 ```
 .claude/commands/cleanup.md   ← the slash command (the core product)
 scripts/windows/cleanup/      ← committed Windows helper scripts (scan + hook-safe delete)
+scripts/cleanup/              ← versioned scan/plan/result contracts + policies
 install.sh / install.ps1      ← install the command + helper scripts
 cleanup-gist.md               ← slimmer, harness-agnostic portable variant (Unix-first)
 docs/                          ← spec and implementation plan
@@ -36,6 +37,15 @@ The command instructs Claude Code through 7 steps:
 
 - **WizTree acceleration:** Reads NTFS MFT directly, replacing dozens of slow `Get-ChildItem -Recurse` calls with instant CSV lookups via a Python helper script.
 - **Committed helper scripts (Windows):** The scan/delete helpers (`wt_lookup.py`, `find_targets.py`, `assert_list.py`, `live_paths.ps1`, `diskspace.ps1`, `run_wiztree.ps1`, `squirrel.ps1`, `appdata_orphans.ps1`, `winsdk.ps1`, `vs_orphans.ps1`, `scrub.ps1`) are committed files, not inline heredocs — heredocs mangle backslash literals and a hardcoded `/tmp/...` path inside a script is not MSYS-converted (only command-line args are). The command resolves them via `$CLEANUP_SCRIPTS` (repo `scripts/windows/cleanup/`, installed `~/.claude/cleanup-scripts/`, or the synced `claude-config` workspace). Only the WizTree CSV scratch still lives in `/tmp/claude-cleanup/` (not `/tmp/`, to survive the temp-files category) and is removed in Step 7.
+- **Structured contract pipeline:** `scripts/cleanup/` owns immutable evidence,
+  selected plans, policy/executor allowlists, refreshed validation, and result
+  schemas. `scripts/windows/cleanup/scan.ps1` and `execute-plan.ps1` are the
+  Windows producer/executor boundary. The opt-in `--structured-preview` requires
+  PowerShell 7 while migration from the prose path is incomplete.
+- **Installed release integrity:** `install-manifest.sha256` binds the installed
+  command, helpers, contracts, schemas, and policy. Both installers stage and
+  verify all files, copy the command first, and publish the manifest last so an
+  interrupted update fails closed instead of leaving an undetectable mixed set.
 - **`scrub.ps1` for hook-safe Windows deletes:** A path-protection hook aborts any command string containing an inline `Remove-Item`/`rmdir` on a protected path. `scrub.ps1` takes a list file and does the deletes from inside the script (the launcher carries no delete keywords); its worker function is `Scrub`, never `Del`/`RD`/`RM` (those are `Remove-Item` aliases that shadow same-named functions).
 - **`npm-cache` is NOT a `scrub.ps1` target — `_npx` hosts running MCP servers.** `%LOCALAPPDATA%\npm-cache\_npx\` is where `npx -y <pkg>` materialises packages, so on a Claude Code machine live MCP servers (harmonica-mcp, context7, shadcn…) execute from inside npm-cache, once per running session. A whole-dir `rmdir /s /q` deletes their code mid-flight. Only `npm cache clean --force` is safe (prunes `_cacache`, leaves `_npx`) — slower, and that's the price. 2026-07-16: scrub returned `Access is denied` **because** two sessions held it; the lock was the only thing preventing the damage.
 - **Two temp exclusions, not one: `claude-cleanup` AND `claude`.** `%TEMP%\claude\<project-hash>\` is Claude Code's own scratch (live task-output files). Deleting it kills the in-flight Bash call with `output file could not be read (ENOENT)`. 2026-07-16: swept in and survived only by being locked.
@@ -59,6 +69,6 @@ When editing `.claude/commands/cleanup.md`:
 - Every category needs: scan instructions, size collection, and a clean command in the Step 6 table
 - WizTree-accelerated categories must have a "Fallback:" path for when WizTree isn't available
 - **Do NOT test by copying to `~/.claude/commands/cleanup.md`.** That was the old advice and it is what caused #12: a user-level command **outranks the project junction**, so the test copy silently becomes the thing that always loads, and it goes stale the moment canonical moves. On a maintainer machine that path must not exist — `<workspace>/.claude/commands` is a junction to `claude-config/commands`, and `~/.claude/cleanup-scripts` is a junction to `claude-config/scripts/windows/cleanup`. Edit canonical and run `/cleanup --dry-run` from the workspace; you are already testing the real file.
-- **Canonical is `zhiganov/claude-config`** (`commands/cleanup.md` + `scripts/windows/cleanup/`) — that workspace is where the command is iterated. This repo is the **published** copy that `install.sh` serves. Sync canonical → here and keep the `install.sh`/`install.ps1` fetch lists current; a helper that is not in both lists is a script no installed user ever downloads. Step 1 of the command hash-compares the two checkouts and refuses to run on drift.
+- **Canonical is `zhiganov/claude-config`** (`commands/cleanup.md` + `scripts/windows/cleanup/` + `scripts/cleanup/`) — that workspace is where the command is iterated. This repo is the **published** copy that `install.sh` serves. Sync canonical → here and keep the `install.sh`/`install.ps1` fetch lists current; a helper that is not in both lists is a script no installed user ever downloads. Step 1 of the command hash-compares the two checkouts and refuses to run on drift.
 - **Compare with `diff --strip-trailing-cr`, never `cmp`.** Both repos are `core.autocrlf=true` with no `.gitattributes`, so a working-tree file is LF or CRLF depending only on whether it arrived via `git checkout` or a copy — and git calls both clean. `cmp` reports drift on identical content.
 - **`grep -i -F` aborts** (SIGABRT, exit 134) on Git-for-Windows GNU grep 3.0 — any input, even `echo hello | grep -c -i -F hello`. Use `-F` without `-i`; do case-insensitive fixed-string matching in Python or PowerShell. An abort emits nothing, and nothing looks exactly like "no matches".

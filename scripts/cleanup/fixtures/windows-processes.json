@@ -1,0 +1,44 @@
+[
+  {
+    "ProcessId": 100,
+    "ParentProcessId": 1,
+    "Name": "claude.exe",
+    "CommandLine": "claude.exe --resume session-one",
+    "ExecutablePath": "C:\\Tools\\claude.exe"
+  },
+  {
+    "ProcessId": 101,
+    "ParentProcessId": 100,
+    "Name": "node.exe",
+    "CommandLine": "node C:\\npm-cache\\_npx\\one\\mcp.js",
+    "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe"
+  },
+  {
+    "ProcessId": 200,
+    "ParentProcessId": 1,
+    "Name": "claude.exe",
+    "CommandLine": "claude.exe --resume \"Session Two\"",
+    "ExecutablePath": "C:\\Tools\\claude.exe"
+  },
+  {
+    "ProcessId": 300,
+    "ParentProcessId": 1,
+    "Name": "opencode2.exe",
+    "CommandLine": "opencode2.exe serve --service",
+    "ExecutablePath": "C:\\Tools\\opencode2.exe"
+  },
+  {
+    "ProcessId": 301,
+    "ParentProcessId": 300,
+    "Name": "node.exe",
+    "CommandLine": "node C:\\npm-cache\\_npx\\two\\mcp.js",
+    "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe"
+  },
+  {
+    "ProcessId": 302,
+    "ParentProcessId": 1,
+    "Name": "opencode2.exe",
+    "CommandLine": "opencode2.exe",
+    "ExecutablePath": "C:\\Tools\\opencode2.exe"
+  }
+]

@@ -1,0 +1,89 @@
+{
+  "schemaVersion": "1.0",
+  "policies": [
+    {
+      "policyId": "npm-cache-clean",
+      "executorId": "npm-cache-clean",
+      "mode": "tool-command",
+      "elevated": false,
+      "rootPolicyId": "npm-cacache-root",
+      "preconditions": {
+        "requireExists": true,
+        "rejectReparsePoint": true,
+        "liveness": "not-applicable",
+        "freshness": "not-applicable",
+        "registeredMcpOwnership": "not-applicable"
+      }
+    },
+    {
+      "policyId": "windows-user-temp",
+      "executorId": "clear-directory-contents",
+      "mode": "contents-only",
+      "elevated": false,
+      "rootPolicyId": "windows-user-temp-root",
+      "preconditions": {
+        "requireExists": true,
+        "rejectReparsePoint": true,
+        "liveness": "refresh-before-execution",
+        "freshness": "not-applicable",
+        "registeredMcpOwnership": "not-applicable"
+      }
+    },
+    {
+      "policyId": "inactive-build-artifact",
+      "executorId": "remove-directory-tree",
+      "mode": "whole-directory",
+      "elevated": false,
+      "rootPolicyId": "workspace-build-artifact-root",
+      "preconditions": {
+        "requireExists": true,
+        "rejectReparsePoint": true,
+        "liveness": "refresh-before-execution",
+        "freshness": "refresh-before-execution",
+        "registeredMcpOwnership": "not-applicable"
+      }
+    },
+    {
+      "policyId": "config-msi-leftovers",
+      "executorId": "remove-directory-tree-elevated",
+      "mode": "whole-directory",
+      "elevated": true,
+      "rootPolicyId": "config-msi-root",
+      "preconditions": {
+        "requireExists": true,
+        "rejectReparsePoint": true,
+        "liveness": "refresh-before-execution",
+        "freshness": "not-applicable",
+        "registeredMcpOwnership": "not-applicable"
+      }
+    },
+    {
+      "policyId": "windows-old-manual",
+      "executorId": "show-windows-storage-instructions",
+      "mode": "manual-only",
+      "elevated": true,
+      "rootPolicyId": "windows-old-root",
+      "preconditions": {
+        "requireExists": true,
+        "rejectReparsePoint": true,
+        "liveness": "not-applicable",
+        "freshness": "not-applicable",
+        "registeredMcpOwnership": "not-applicable"
+      }
+    }
+  ],
+  "executors": [
+    { "executorId": "npm-cache-clean", "mode": "tool-command", "elevated": false },
+    { "executorId": "clear-directory-contents", "mode": "contents-only", "elevated": false },
+    { "executorId": "remove-directory-tree", "mode": "whole-directory", "elevated": false },
+    { "executorId": "remove-directory-tree-elevated", "mode": "whole-directory", "elevated": true },
+    { "executorId": "show-windows-storage-instructions", "mode": "manual-only", "elevated": true }
+  ],
+  "rootPolicies": [
+    { "rootPolicyId": "npm-cacache-root", "pathClass": "npm-cacache" },
+    { "rootPolicyId": "windows-user-temp-root", "pathClass": "user-temp" },
+    { "rootPolicyId": "workspace-build-artifact-root", "pathClass": "workspace-build-artifact" },
+    { "rootPolicyId": "config-msi-root", "pathClass": "config-msi" },
+    { "rootPolicyId": "windows-old-root", "pathClass": "windows-old" }
+  ]
+}

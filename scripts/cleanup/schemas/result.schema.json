@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/zhiganov/claude-config/scripts/cleanup/schemas/result.schema.json",
+  "title": "Cleanup Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "resultId", "planId", "runId", "startedAt", "completedAt", "diskBefore", "diskAfter", "operations", "warnings", "failures"],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "resultId": { "type": "string", "format": "uuid" },
+    "planId": { "type": "string", "format": "uuid" },
+    "runId": { "type": "string", "format": "uuid" },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "completedAt": { "type": "string", "format": "date-time" },
+    "diskBefore": { "$ref": "#/$defs/diskSnapshot" },
+    "diskAfter": { "$ref": "#/$defs/diskSnapshot" },
+    "operations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["operationId", "status", "bytesBefore", "bytesAfter", "message"],
+        "properties": {
+          "operationId": { "type": "string", "minLength": 1 },
+          "status": { "enum": ["removed", "contents-cleared", "locked-skipped", "recreated", "manual-required", "validated-noop", "failed"] },
+          "bytesBefore": { "type": "integer", "minimum": 0 },
+          "bytesAfter": { "type": "integer", "minimum": 0 },
+          "message": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "warnings": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "failures": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+  },
+  "$defs": {
+    "diskSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capturedAt", "freeBytes", "totalBytes"],
+      "properties": {
+        "capturedAt": { "type": "string", "format": "date-time" },
+        "freeBytes": { "type": "integer", "minimum": 0 },
+        "totalBytes": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

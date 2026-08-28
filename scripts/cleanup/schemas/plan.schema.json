@@ -1,0 +1,186 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/zhiganov/claude-config/scripts/cleanup/schemas/plan.schema.json",
+  "title": "Cleanup Plan",
+  "description": "A user-selected, data-only cleanup plan. Executors must resolve policyId and executorId through committed allowlists; the plan cannot contain executable commands.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "planId",
+    "runId",
+    "createdAt",
+    "scan",
+    "selection",
+    "assertionBuckets",
+    "operations",
+    "exclusions"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "planId": { "type": "string", "format": "uuid" },
+    "runId": { "type": "string", "format": "uuid" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "scan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "digestAlgorithm", "sha256", "createdAt"],
+      "properties": {
+        "schemaVersion": { "const": "1.0" },
+        "digestAlgorithm": { "const": "sha256-utf8-lf-v1" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "selectedAt", "categoryIds", "itemIds"],
+      "properties": {
+        "source": { "const": "interactive-user-selection" },
+        "selectedAt": { "type": "string", "format": "date-time" },
+        "categoryIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/id" }
+        },
+        "itemIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/itemId" }
+        }
+      }
+    },
+    "assertionBuckets": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["categoryId", "minimumOperationCount"],
+        "properties": {
+          "categoryId": { "$ref": "#/$defs/id" },
+          "minimumOperationCount": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "operations": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/operation" }
+    },
+    "exclusions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/exclusion" }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "itemId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._:-]*$"
+    },
+    "absolutePath": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Canonical absolute path in the native platform form."
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "bytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resourceId", "expectedKind"],
+      "properties": {
+        "resourceId": { "$ref": "#/$defs/itemId" },
+        "canonicalPath": {
+          "anyOf": [
+            { "$ref": "#/$defs/absolutePath" },
+            { "type": "null" }
+          ]
+        },
+        "expectedKind": { "enum": ["file", "directory", "tool-managed", "manual"] },
+        "expectedLogicalBytes": { "$ref": "#/$defs/bytes" }
+      }
+    },
+    "preconditions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rootPolicyId",
+        "requireExists",
+        "rejectReparsePoint",
+        "liveness",
+        "freshness",
+        "registeredMcpOwnership"
+      ],
+      "properties": {
+        "rootPolicyId": { "$ref": "#/$defs/id" },
+        "requireExists": { "type": "boolean" },
+        "rejectReparsePoint": { "type": "boolean" },
+        "liveness": { "enum": ["refresh-before-execution", "not-applicable"] },
+        "freshness": { "enum": ["refresh-before-execution", "not-applicable"] },
+        "registeredMcpOwnership": { "enum": ["refresh-before-execution", "not-applicable"] }
+      }
+    },
+    "operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operationId",
+        "categoryId",
+        "itemId",
+        "policyId",
+        "executorId",
+        "mode",
+        "elevated",
+        "confirmation",
+        "target",
+        "preconditions"
+      ],
+      "properties": {
+        "operationId": { "$ref": "#/$defs/itemId" },
+        "categoryId": { "$ref": "#/$defs/id" },
+        "itemId": { "$ref": "#/$defs/itemId" },
+        "policyId": { "$ref": "#/$defs/id" },
+        "executorId": {
+          "$ref": "#/$defs/id",
+          "description": "Identifier resolved through a committed executor allowlist. Never a command string."
+        },
+        "mode": {
+          "enum": ["whole-directory", "contents-only", "single-file", "tool-command", "manual-only"]
+        },
+        "elevated": { "type": "boolean" },
+        "confirmation": { "enum": ["category-selected", "item-confirmed"] },
+        "target": { "$ref": "#/$defs/target" },
+        "preconditions": { "$ref": "#/$defs/preconditions" },
+        "affectedApplications": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "exclusion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policyId", "canonicalPath", "relationship", "reason"],
+      "properties": {
+        "policyId": { "$ref": "#/$defs/id" },
+        "canonicalPath": { "$ref": "#/$defs/absolutePath" },
+        "relationship": { "enum": ["exact", "subtree"] },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}
