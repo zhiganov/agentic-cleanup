@@ -63,7 +63,7 @@ for cand in "$root/claude-config/scripts/cleanup" "$root/agentic-cleanup/scripts
   [ -f "$cand/Cleanup.Contracts.psm1" ] && CLEANUP_CONTRACTS="$cand" && break
 done
 
-# A regular installed payload must be bound to every selected runtime command copy.
+# A regular installed payload must be bound to every existing runtime command copy.
 # A maintainer junction resolves elsewhere and is covered by provenance below.
 installed_helpers="$agentic_data/scripts/windows/cleanup"
 if [ "$CLEANUP_SCRIPTS" = "$installed_helpers" ] && \
@@ -89,23 +89,15 @@ if [ "$CLEANUP_SCRIPTS" = "$installed_helpers" ] && \
     false
   fi || \
     { echo "STOP: installed cleanup files are mixed or corrupt; reinstall /cleanup"; exit 1; }
-  runtime_state="$agentic_data/installed-runtimes"
-  [ -f "$runtime_state" ] || { echo "STOP: installed runtime selection is missing; reinstall /cleanup"; exit 1; }
-  installed_runtimes=()
-  while IFS= read -r runtime; do
-    case "$runtime" in
-      claude) command_copy="$claude_dir/commands/cleanup.md" ;;
-      opencode) command_copy="$opencode_dir/commands/cleanup.md" ;;
-      *) echo "STOP: installed runtime selection is invalid: $runtime"; exit 1 ;;
-    esac
-    for selected in "${installed_runtimes[@]}"; do
-      [ "$selected" != "$runtime" ] || { echo "STOP: installed runtime selection is duplicated: $runtime"; exit 1; }
-    done
-    installed_runtimes+=("$runtime")
-    [ -f "$command_copy" ] && cmp -s "$agentic_data/cleanup.md" "$command_copy" || \
-      { echo "STOP: runtime command copy is missing or does not match this release: $command_copy"; exit 1; }
-  done < "$runtime_state"
-  [ "${#installed_runtimes[@]}" -gt 0 ] || { echo "STOP: no installed cleanup runtime is selected; reinstall /cleanup"; exit 1; }
+  installed_runtime_count=0
+  for command_copy in "$claude_dir/commands/cleanup.md" "$opencode_dir/commands/cleanup.md"; do
+    if [ -e "$command_copy" ] || [ -L "$command_copy" ]; then
+      [ ! -L "$command_copy" ] && [ -f "$command_copy" ] && cmp -s "$agentic_data/cleanup.md" "$command_copy" || \
+        { echo "STOP: existing runtime command copy does not match this release: $command_copy"; exit 1; }
+      installed_runtime_count=$((installed_runtime_count + 1))
+    fi
+  done
+  [ "$installed_runtime_count" -gt 0 ] || { echo "STOP: no installed cleanup runtime command was found; reinstall /cleanup"; exit 1; }
 fi
 ```
 

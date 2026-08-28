@@ -10,6 +10,26 @@ function Assert-True([bool]$Condition, [string]$Message) {
     Write-Output "PASS: $Message"
 }
 
+function ConvertTo-MsysPath([string]$Path) {
+    $fullPath = [IO.Path]::GetFullPath($Path)
+    if ($fullPath -notmatch '^([A-Za-z]):\\(.*)$') { throw "Cannot convert path to MSYS format: $Path" }
+    '/' + $Matches[1].ToLowerInvariant() + '/' + $Matches[2].Replace('\', '/')
+}
+
+function Invoke-GitBash([string]$GitBash, [string]$Command) {
+    $startInfo = [Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $GitBash
+    $startInfo.Arguments = '-lc "' + $Command.Replace('"', '\"') + '"'
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $process = [Diagnostics.Process]::Start($startInfo)
+    $stdout = $process.StandardOutput.ReadToEnd()
+    $stderr = $process.StandardError.ReadToEnd()
+    $process.WaitForExit()
+    [pscustomobject]@{ ExitCode = $process.ExitCode; Stdout = $stdout; Stderr = $stderr }
+}
+
 function Invoke-WebRequest {
     param([Parameter(Mandatory)][string]$Uri, [Parameter(Mandatory)][string]$OutFile)
     if (-not $Uri.StartsWith("$fixtureUrl/", [StringComparison]::Ordinal)) { throw "Unexpected fixture URL: $Uri" }
@@ -47,7 +67,25 @@ try {
     Assert-True (Test-Path -LiteralPath $openCodeCommand -PathType Leaf) 'PowerShell installer publishes the OpenCode command'
     Assert-True (Test-Path -LiteralPath (Join-Path $dataDir 'install-manifest.sha256') -PathType Leaf) 'PowerShell installer publishes the shared manifest'
     Assert-True ((Get-FileHash -LiteralPath $claudeCommand).Hash -eq (Get-FileHash -LiteralPath $openCodeCommand).Hash) 'PowerShell runtime command copies are byte-identical'
-    Assert-True (@(Get-Content -LiteralPath (Join-Path $dataDir 'installed-runtimes')).Count -eq 2) 'Default installation records both selected runtimes'
+
+    $env:AGENTIC_CLEANUP_RUNTIME = 'opencode'
+    $claudeTimestamp = [datetime]'2001-01-01T00:00:00Z'
+    (Get-Item -LiteralPath $claudeCommand).LastWriteTimeUtc = $claudeTimestamp
+    $claudeTimestamp = (Get-Item -LiteralPath $claudeCommand).LastWriteTimeUtc
+    & { . $installer }
+    Assert-True ((Get-Item -LiteralPath $claudeCommand).LastWriteTimeUtc -eq $claudeTimestamp) 'Same-release OpenCode-only transition does not rewrite Claude Code'
+
+    [IO.File]::WriteAllText($claudeCommand, 'stale-claude-command', [Text.UTF8Encoding]::new($false))
+    $payloadHashBeforeRefusal = (Get-FileHash -LiteralPath (Join-Path $dataDir 'cleanup.md')).Hash
+    try {
+        & { . $installer }
+        throw 'FAIL: PowerShell installer allowed a stale unselected Claude command'
+    } catch {
+        if ($_.Exception.Message -eq 'FAIL: PowerShell installer allowed a stale unselected Claude command') { throw }
+        Assert-True ($_.Exception.Message -like 'Refusing to leave a stale Claude Code command:*') 'OpenCode-only upgrade rejects a stale Claude command'
+    }
+    Assert-True (([IO.File]::ReadAllText($claudeCommand)) -eq 'stale-claude-command') 'Rejected upgrade does not modify the stale Claude command'
+    Assert-True ((Get-FileHash -LiteralPath (Join-Path $dataDir 'cleanup.md')).Hash -eq $payloadHashBeforeRefusal) 'Rejected upgrade does not modify the shared payload'
 
     $openCodeOnlyRoot = Join-Path $testRoot 'opencode-only'
     $env:CLAUDE_CONFIG_DIR = Join-Path $openCodeOnlyRoot 'claude'
@@ -55,14 +93,59 @@ try {
     $env:XDG_DATA_HOME = Join-Path $openCodeOnlyRoot 'data'
     $env:AGENTIC_CLEANUP_RUNTIME = 'opencode'
     $untouchedClaudeCommand = Join-Path $env:CLAUDE_CONFIG_DIR 'commands\cleanup.md'
-    [IO.Directory]::CreateDirectory((Split-Path -Parent $untouchedClaudeCommand)) | Out-Null
-    [IO.File]::WriteAllText($untouchedClaudeCommand, 'leave-claude-untouched', [Text.UTF8Encoding]::new($false))
     & { . $installer }
     $openCodeOnlyCommand = Join-Path $env:XDG_CONFIG_HOME 'opencode\commands\cleanup.md'
     $openCodeOnlyState = Join-Path $env:XDG_DATA_HOME 'agentic-cleanup\installed-runtimes'
-    Assert-True (([IO.File]::ReadAllText($untouchedClaudeCommand)) -eq 'leave-claude-untouched') 'OpenCode-only installation does not modify Claude Code'
+    Assert-True (-not (Test-Path -LiteralPath $untouchedClaudeCommand)) 'OpenCode-only installation does not create a Claude Code command'
     Assert-True (Test-Path -LiteralPath $openCodeOnlyCommand -PathType Leaf) 'OpenCode-only installation publishes the OpenCode command'
-    Assert-True (([IO.File]::ReadAllText($openCodeOnlyState).Trim()) -eq 'opencode') 'OpenCode-only installation records only OpenCode'
+    Assert-True (-not (Test-Path -LiteralPath $openCodeOnlyState)) 'Installation does not rely on mutable runtime-selection state'
+
+    $gitBash = Join-Path $env:ProgramFiles 'Git\bin\bash.exe'
+    Assert-True (Test-Path -LiteralPath $gitBash -PathType Leaf) 'Git Bash is available for shell installer integration tests'
+    $bashRoot = Join-Path $testRoot 'bash'
+    $bashFixture = Join-Path $bashRoot 'source'
+    foreach ($line in Get-Content -LiteralPath (Join-Path $repoRoot 'install-manifest.sha256')) {
+        $relative = $line.Substring(66)
+        $source = Join-Path $repoRoot ($relative -replace '/', '\')
+        $destination = Join-Path $bashFixture ($relative -replace '/', '\')
+        [IO.Directory]::CreateDirectory((Split-Path -Parent $destination)) | Out-Null
+        $text = [IO.File]::ReadAllText($source).TrimStart([char]0xFEFF).Replace("`r`n", "`n").Replace("`r", "`n")
+        [IO.File]::WriteAllText($destination, $text, [Text.UTF8Encoding]::new($false))
+    }
+    $manifestText = [IO.File]::ReadAllText((Join-Path $repoRoot 'install-manifest.sha256')).Replace("`r`n", "`n").Replace("`r", "`n")
+    [IO.File]::WriteAllText((Join-Path $bashFixture 'install-manifest.sha256'), $manifestText, [Text.UTF8Encoding]::new($false))
+    $bashInstaller = Join-Path $bashRoot 'install.sh'
+    $installerText = [IO.File]::ReadAllText((Join-Path $repoRoot 'install.sh')).Replace("`r`n", "`n").Replace("`r", "`n")
+    [IO.File]::WriteAllText($bashInstaller, $installerText, [Text.UTF8Encoding]::new($false))
+    $bashPath = ConvertTo-MsysPath $bashRoot
+    $bashFixtureUrl = 'file:///' + $bashFixture.Replace('\', '/')
+    $bashEnvironment = "AGENTIC_CLEANUP_REPO_URL='$bashFixtureUrl' CLAUDE_CONFIG_DIR='$bashPath/claude' XDG_CONFIG_HOME='$bashPath/config' XDG_DATA_HOME='$bashPath/data' TMPDIR='$bashPath'"
+    $bashResult = Invoke-GitBash $gitBash "$bashEnvironment AGENTIC_CLEANUP_RUNTIME=opencode '$bashPath/install.sh'"
+    if ($bashResult.ExitCode -ne 0) { throw "FAIL: Git Bash OpenCode-only installation exited $($bashResult.ExitCode): $($bashResult.Stderr)" }
+    $bashClaudeCommand = Join-Path $bashRoot 'claude\commands\cleanup.md'
+    $bashOpenCodeCommand = Join-Path $bashRoot 'config\opencode\commands\cleanup.md'
+    $bashDataPayload = Join-Path $bashRoot 'data\agentic-cleanup\cleanup.md'
+    Assert-True (-not (Test-Path -LiteralPath $bashClaudeCommand)) 'Git Bash OpenCode-only installation does not create a Claude command'
+    Assert-True (Test-Path -LiteralPath $bashOpenCodeCommand -PathType Leaf) 'Git Bash OpenCode-only installation publishes the OpenCode command'
+
+    $bashResult = Invoke-GitBash $gitBash "$bashEnvironment AGENTIC_CLEANUP_RUNTIME=all '$bashPath/install.sh'"
+    if ($bashResult.ExitCode -ne 0) { throw "FAIL: Git Bash all-runtime installation exited $($bashResult.ExitCode): $($bashResult.Stderr)" }
+    $installedCommand = [IO.File]::ReadAllText($bashOpenCodeCommand)
+    $preambleMatch = [regex]::Match($installedCommand, '(?s)```bash\r?\n(.*?)\r?\n```')
+    Assert-True $preambleMatch.Success 'Installed command exposes its integrity preamble'
+    $guardScript = Join-Path $bashRoot 'verify.sh'
+    [IO.File]::WriteAllText($guardScript, ($preambleMatch.Groups[1].Value.Replace("`r`n", "`n").Replace("`r", "`n") + "`n"), [Text.UTF8Encoding]::new($false))
+    [IO.Directory]::CreateDirectory((Join-Path $bashRoot 'work')) | Out-Null
+    $guardCommand = "cd '$bashPath/work' && CLAUDE_CONFIG_DIR='$bashPath/claude' XDG_CONFIG_HOME='$bashPath/config' XDG_DATA_HOME='$bashPath/data' '$bashPath/verify.sh'"
+    $bashResult = Invoke-GitBash $gitBash $guardCommand
+    if ($bashResult.ExitCode -ne 0) { throw "FAIL: Installed command integrity preamble exited $($bashResult.ExitCode): $($bashResult.Stderr)" }
+    [IO.File]::WriteAllText($bashClaudeCommand, 'stale-claude-command', [Text.UTF8Encoding]::new($false))
+    $bashPayloadHash = (Get-FileHash -LiteralPath $bashDataPayload).Hash
+    $bashResult = Invoke-GitBash $gitBash $guardCommand
+    Assert-True ($bashResult.ExitCode -ne 0) 'Installed command rejects any stale existing runtime copy'
+    $bashResult = Invoke-GitBash $gitBash "$bashEnvironment AGENTIC_CLEANUP_RUNTIME=opencode '$bashPath/install.sh'"
+    Assert-True ($bashResult.ExitCode -ne 0) 'Git Bash OpenCode-only upgrade rejects a stale Claude command'
+    Assert-True ((Get-FileHash -LiteralPath $bashDataPayload).Hash -eq $bashPayloadHash) 'Rejected Git Bash upgrade does not modify the shared payload'
 
     $env:AGENTIC_CLEANUP_RUNTIME = 'invalid'
     try {
