@@ -18,7 +18,7 @@ New-Item -ItemType Directory -Force -Path "$stage\scripts\windows\cleanup", "$st
 try {
   Invoke-WebRequest -Uri "$RepoUrl/cleanup.md" -OutFile "$stage\cleanup.md"
 
-  $scripts = @('wt_lookup.py','find_targets.py','assert_list.py','live_paths.ps1','diskspace.ps1','run_wiztree.ps1','squirrel.ps1',
+  $scripts = @('wt_lookup.py','find_targets.py','assert_list.py','live_paths.ps1','registered_mcp.ps1','diskspace.ps1','run_wiztree.ps1','squirrel.ps1',
                'appdata_orphans.ps1','winsdk.ps1','vs_orphans.ps1','scrub.ps1','scan.ps1','execute-plan.ps1','README.md')
   foreach ($f in $scripts) {
     Invoke-WebRequest -Uri "$RepoUrl/scripts/windows/cleanup/$f" -OutFile "$stage\scripts\windows\cleanup\$f"

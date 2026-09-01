@@ -9,12 +9,16 @@ param(
     [string]$PolicyRegistryPath = (Join-Path $PSScriptRoot 'policies\windows.v1.json'),
     [string]$HelpersDirectory = (Join-Path $PSScriptRoot '..\windows\cleanup'),
     [string]$ProcessFixture,
+    [string]$HomePath = $HOME,
+    [string[]]$ClaudeConfigPath,
+    [string[]]$OpenCodeConfigPath,
     [switch]$Quiet
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'Cleanup.Contracts.psm1') -Force
+. (Join-Path $HelpersDirectory 'registered_mcp.ps1')
 $scanSchema = Join-Path $PSScriptRoot 'schemas\scan.schema.json'
 $planSchema = Join-Path $PSScriptRoot 'schemas\plan.schema.json'
 
@@ -54,6 +58,12 @@ function Test-RootPolicy([object]$Operation, [object]$Scan, [object]$Registry, [
         }
         'workspace-build-artifact' {
             return (Test-PathInside $path $Scan.workspace.root) -and (Split-Path -Leaf $path) -in @('.next', '.turbo', '.parcel-cache', '.vite')
+        }
+        'workspace-node-modules' {
+            if (-not (Test-PathInside $path $Scan.workspace.root) -or (Split-Path -Leaf $path) -ne 'node_modules') { return $false }
+            $relative = [IO.Path]::GetRelativePath([string]$Scan.workspace.root, $path)
+            $segments = @($relative -split '[\\/]' | Where-Object { $_ })
+            return @($segments | Where-Object { $_ -eq 'node_modules' }).Count -eq 1
         }
         'config-msi' {
             if (-not $FixtureMode) { return $path -eq [IO.Path]::GetFullPath("$env:SystemDrive\Config.Msi") }
@@ -136,7 +146,14 @@ foreach ($operation in $operationsToValidate) {
         Add-Check 'cold-for-24-hours' ($newest -le [DateTime]::UtcNow.AddHours(-24)) $newest.ToString('o')
     }
     if ($operation.preconditions.registeredMcpOwnership -eq 'refresh-before-execution') {
-        Add-Check 'registered-mcp-ownership' $false 'No registered-MCP refresh provider is implemented for this policy.'
+        try {
+            $ownership = Get-RegisteredMcpOwnership -ProjectPath (Split-Path -Parent $target) -WorkspaceRoot $scan.workspace.root -HomePath $HomePath `
+                -ClaudeConfigPath $ClaudeConfigPath -OpenCodeConfigPath $OpenCodeConfigPath
+            $owners = @($ownership.owners | ForEach-Object { "$($_.runtime):$($_.name)" } | Sort-Object -Unique)
+            Add-Check 'registered-mcp-ownership' ($ownership.status -eq 'complete' -and $owners.Count -eq 0) $(if ($owners.Count) { $owners -join ', ' } else { 'No static MCP registration owns the target project' })
+        } catch {
+            Add-Check 'registered-mcp-ownership' $false "Registration discovery failed closed: $($_.Exception.Message)"
+        }
     }
     $checks.Add([ordered]@{ operationId = [string]$operation.operationId; checks = @($operationChecks) })
 }

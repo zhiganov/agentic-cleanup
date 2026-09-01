@@ -22,7 +22,7 @@ If you run this on an untested distro and something misbehaves, the category gua
 
 ## Arguments
 
-Parse the optional flags appended after this command template. If they contain `--dry-run`, operate in report-only mode (skip selection and deletion steps). If they contain `--structured-preview`, run the committed five-category Windows contract preview described below and stop after rendering its immutable scan.
+Parse the optional flags appended after this command template. If they contain `--dry-run`, operate in report-only mode (skip selection and deletion steps). If they contain `--structured-preview`, run the committed six-category Windows contract preview described below and stop after rendering its immutable scan.
 
 ## Instructions
 
@@ -70,7 +70,7 @@ if [ "$CLEANUP_SCRIPTS" = "$installed_helpers" ] && \
   [ -f "$manifest" ] || { echo "STOP: installed cleanup manifest is missing; reinstall /cleanup"; exit 1; }
   manifest_paths=(
     cleanup.md
-    scripts/windows/cleanup/{wt_lookup.py,find_targets.py,assert_list.py,live_paths.ps1,diskspace.ps1,run_wiztree.ps1,squirrel.ps1,appdata_orphans.ps1,winsdk.ps1,vs_orphans.ps1,scrub.ps1,scan.ps1,execute-plan.ps1,README.md}
+    scripts/windows/cleanup/{wt_lookup.py,find_targets.py,assert_list.py,live_paths.ps1,registered_mcp.ps1,diskspace.ps1,run_wiztree.ps1,squirrel.ps1,appdata_orphans.ps1,winsdk.ps1,vs_orphans.ps1,scrub.ps1,scan.ps1,execute-plan.ps1,README.md}
     scripts/cleanup/{Cleanup.Contracts.psm1,build-plan.ps1,validate-plan.ps1,render-scan.ps1,README.md,schemas/scan.schema.json,schemas/plan.schema.json,schemas/result.schema.json,policies/windows.v1.json}
   )
   [ "$(wc -l < "$manifest" | tr -d ' ')" -eq "${#manifest_paths[@]}" ] || \
@@ -141,7 +141,8 @@ fi
 | `squirrel.ps1` | Discover Squirrel old `app-*` versions |
 | `appdata_orphans.ps1` / `winsdk.ps1` / `vs_orphans.ps1` | Windows orphan / old-version discovery |
 | `live_paths.ps1 [-Summary]` | Paths RUNNING processes depend on (stdout); session + MCP-server census on stderr |
-| `scan.ps1` | Emit an immutable, schema-validated five-category Windows evidence scan |
+| `registered_mcp.ps1` | Discover static Claude Code and OpenCode V2 local MCP ownership without exposing commands or secrets |
+| `scan.ps1` | Emit an immutable, schema-validated six-category Windows evidence scan |
 | `assert_list.py <list> --require L=SUB --forbid L=SUB --live <paths>` | **Gate before `scrub.ps1`** — buckets the list, fails on a missing/forbidden/unclassified/live entry |
 | `scrub.ps1 -ListFile <file>` | Hook-safe batch deleter (one path per line) |
 | `execute-plan.ps1` | Validate and run only operations resolved through the committed policy registry; elevated targets require an already elevated trusted process |
@@ -338,7 +339,7 @@ For each candidate:
    - **Fallback Windows:** PowerShell `Get-ChildItem` with `-Recurse -File | Measure-Object -Property Length -Sum`
    - **macOS/Linux:** `du -sm <path>/node_modules | cut -f1` (size in MB)
 4. Skip if size < 10 MB
-5. **Skip if it backs a live MCP server.** If the project dir is referenced by a registered stdio MCP server's `args` path in `~/.claude.json` (e.g. `book-power-output/mcp/<slug>/` whose server runs `node …/dist/index.js`), never delete its `node_modules` — the project can have no recent git activity yet still need those deps to start. `find_targets.py` filters these out automatically; apply the same rule in the no-WizTree fallback walk. (Two book-power MCPs broke with `-32000` after a cleanup wiped their deps, 2026-06-29.)
+5. **Skip if it backs a registered MCP server.** A project can have no recent git activity yet still need its dependencies whenever a static Claude Code or OpenCode V2 local server points into that project. The structured preview uses `registered_mcp.ps1` and refreshes ownership before execution. The legacy `find_targets.py` filter covers only its historical `~/.claude.json` shape, so ordinary legacy scans must not claim equivalent OpenCode coverage. (Two book-power MCPs broke with `-32000` after a cleanup wiped their deps, 2026-06-29.)
 
 Only report **top-level** `node_modules` per project (not nested ones inside `node_modules/`).
 

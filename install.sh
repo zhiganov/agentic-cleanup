@@ -21,7 +21,7 @@ trap 'rm -rf "$stage"' EXIT
 mkdir -p "$stage/scripts/windows/cleanup" "$stage/scripts/cleanup/schemas" "$stage/scripts/cleanup/policies"
 curl -fsSL "$REPO_URL/cleanup.md" -o "$stage/cleanup.md"
 
-windows_files=(wt_lookup.py find_targets.py assert_list.py live_paths.ps1 diskspace.ps1 run_wiztree.ps1 squirrel.ps1 \
+windows_files=(wt_lookup.py find_targets.py assert_list.py live_paths.ps1 registered_mcp.ps1 diskspace.ps1 run_wiztree.ps1 squirrel.ps1 \
   appdata_orphans.ps1 winsdk.ps1 vs_orphans.ps1 scrub.ps1 scan.ps1 execute-plan.ps1 README.md)
 contract_files=(Cleanup.Contracts.psm1 build-plan.ps1 validate-plan.ps1 render-scan.ps1 README.md \
   schemas/scan.schema.json schemas/plan.schema.json schemas/result.schema.json policies/windows.v1.json)

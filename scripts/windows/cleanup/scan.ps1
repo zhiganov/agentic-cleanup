@@ -11,6 +11,9 @@ param(
     [string]$TempPath = $env:TEMP,
     [string]$ConfigMsiPath = "$env:SystemDrive\Config.Msi",
     [string]$WindowsOldPath = "$env:SystemDrive\Windows.old",
+    [string[]]$ClaudeConfigPath,
+    [string[]]$OpenCodeConfigPath,
+    [long]$MinimumNodeModulesBytes = 10MB,
     [long]$MinimumBuildArtifactBytes = 10MB,
     [long]$MinimumConfigMsiBytes = 100MB,
     [switch]$SkipSessionCensus
@@ -26,6 +29,7 @@ $contractCandidates = @(
 if (@($contractCandidates).Count -eq 0) { throw 'Could not locate cleanup contract directory' }
 $contractRoot = Resolve-Path @($contractCandidates)[0]
 Import-Module (Join-Path $contractRoot 'Cleanup.Contracts.psm1') -Force
+. (Join-Path $HelpersDirectory 'registered_mcp.ps1')
 $scanSchema = Join-Path $contractRoot 'schemas\scan.schema.json'
 
 function Get-CanonicalPath([string]$Path) {
@@ -180,11 +184,88 @@ function Get-NewestWrite([string]$Path) {
 
 function Get-GitEvidence([string]$Path) {
     $project = Split-Path -Parent $Path
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) { return [ordered]@{ active = $false; lastCommit = $null } }
     $root = (& git -C $project rev-parse --show-toplevel 2>$null)
     if (-not $root) { return [ordered]@{ active = $false; lastCommit = $null } }
     $recent = (& git -C $root log -1 --since='4 weeks ago' --format=%cI 2>$null)
     $last = (& git -C $root log -1 --format=%cI 2>$null)
     [ordered]@{ active = [bool]$recent; lastCommit = if ($last) { [string]$last } else { $null } }
+}
+
+function Find-NodeModules([string]$Root) {
+    $pending = [Collections.Generic.Queue[IO.DirectoryInfo]]::new()
+    $pending.Enqueue([IO.DirectoryInfo]::new($Root))
+    while ($pending.Count -gt 0) {
+        $directory = $pending.Dequeue()
+        foreach ($child in @(Get-ChildItem -LiteralPath $directory.FullName -Directory -Force -ErrorAction SilentlyContinue)) {
+            if ($child.Attributes -band [IO.FileAttributes]::ReparsePoint) { continue }
+            if ($child.Name -eq '.git') { continue }
+            if ($child.Name -eq 'node_modules') { $child; continue }
+            $pending.Enqueue($child)
+        }
+    }
+}
+
+function New-NodeModulesCategory(
+    [string]$Root,
+    [long]$MinimumBytes,
+    [bool]$Enabled,
+    [string]$Profile,
+    [string[]]$ClaudeConfigs,
+    [string[]]$OpenCodeConfigs
+) {
+    if (-not $Enabled) {
+        return [ordered]@{
+            categoryId = 'node-modules'; label = 'node_modules (Inactive)'; status = 'skipped'
+            statusReason = 'Workspace root is the user profile or a drive root.'
+            sizes = New-Sizes 0 0 0; items = @(); warnings = @()
+        }
+    }
+    $items = [System.Collections.Generic.List[object]]::new()
+    foreach ($directory in @(Find-NodeModules $Root)) {
+        $bytes = Get-PathBytes $directory.FullName
+        if ($bytes -lt $MinimumBytes) { continue }
+        $canonical = Get-CanonicalPath $directory.FullName
+        $project = Split-Path -Parent $canonical
+        $git = Get-GitEvidence $canonical
+        $ownership = Get-RegisteredMcpOwnership -ProjectPath $project -WorkspaceRoot $Root -HomePath $Profile `
+            -ClaudeConfigPath $ClaudeConfigs -OpenCodeConfigPath $OpenCodeConfigs
+        $owners = @($ownership.owners)
+        $protected = $owners.Count -gt 0
+        $disposition = if ($protected) { 'skipped-protected' } elseif ($git.active) { 'skipped-active' } else { 'eligible' }
+        $itemId = Get-StableId 'node-modules' $canonical
+        $ownerNames = @($owners | ForEach-Object { "$($_.runtime):$($_.name)" } | Sort-Object -Unique)
+        $riskFlags = if ($protected) { 'registered-mcp-owner' } else { @('refresh-liveness', 'refresh-registered-mcp-ownership') }
+        $items.Add([ordered]@{
+            itemId = $itemId
+            displayName = "$($directory.Parent.Name) node_modules"
+            disposition = $disposition
+            sizes = New-Sizes $bytes $(if ($disposition -eq 'eligible') { $bytes } else { 0L }) $(if ($protected) { $bytes } else { 0L })
+            resources = @([ordered]@{ resourceId = "$itemId-dir"; kind = 'directory'; canonicalPath = $canonical; logicalBytes = $bytes; protected = $protected })
+            operationPreview = [ordered]@{ policyId = 'inactive-node-modules'; mode = 'whole-directory'; elevated = $false }
+            evidence = @(
+                [ordered]@{ kind = 'git-last-commit'; source = 'git-log'; value = $git.lastCommit },
+                [ordered]@{ kind = 'registered-mcp-owner'; source = 'static-config-union'; value = $(if ($ownerNames.Count) { $ownerNames -join ', ' } else { $null }) }
+            )
+            riskFlags = @($riskFlags)
+            requiresPerItemConfirmation = $false
+            affectedApplications = @()
+        })
+    }
+    $eligible = @($items | Where-Object disposition -eq 'eligible')
+    $logical = 0L
+    $reclaimable = 0L
+    $protectedBytes = 0L
+    foreach ($item in $items) {
+        $logical += [long]$item.sizes.logicalBytes
+        $reclaimable += [long]$item.sizes.estimatedReclaimableBytes
+        $protectedBytes += [long]$item.sizes.protectedBytes
+    }
+    [ordered]@{
+        categoryId = 'node-modules'; label = 'node_modules (Inactive)'
+        status = if ($eligible.Count -gt 0) { 'found' } elseif ($items.Count -gt 0) { 'skipped' } else { 'empty' }
+        statusReason = $null; sizes = New-Sizes $logical $reclaimable $protectedBytes; items = @($items); warnings = @()
+    }
 }
 
 function Find-BuildArtifacts([string]$Root) {
@@ -344,6 +425,7 @@ $scan = [ordered]@{
     categories = @(
         New-PackageManagerCategory $resolvedNpmCache
         New-WindowsTempCategory $TempPath
+        New-NodeModulesCategory $workspace.root $MinimumNodeModulesBytes $workspaceScoped $HomePath $ClaudeConfigPath $OpenCodeConfigPath
         New-BuildArtifactCategory $workspace.root $MinimumBuildArtifactBytes $workspaceScoped
         New-ConfigMsiCategory $ConfigMsiPath $MinimumConfigMsiBytes
         New-WindowsOldCategory $WindowsOldPath

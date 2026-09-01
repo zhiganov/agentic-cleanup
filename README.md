@@ -42,7 +42,7 @@ A single-runtime upgrade refuses to continue if the other runtime already has a 
 ```
 /cleanup              # scan, report, select, clean
 /cleanup --dry-run    # scan and report only
-/cleanup --structured-preview  # immutable five-category Windows evidence preview
+/cleanup --structured-preview  # immutable six-category Windows evidence preview
 ```
 
 The structured preview is the first migration slice of the testable contract
@@ -163,6 +163,7 @@ Which categories to clean? Enter numbers (e.g., 1,2,3), all, or none to cancel.
 - **WizTree = fast + safe.** Only used for size measurements, never deletes anything.
 - **Keeps newest versions.** Squirrel cleanup only removes old `app-*` directories.
 - **Respects active projects.** Only cleans node_modules and build artifacts in projects with no git activity in 4+ weeks.
+- **Protects registered MCP projects.** The structured path excludes `node_modules` owned by static Claude Code or OpenCode V2 local-server registrations and refreshes ownership before execution.
 - **Protects Claude Code data.** Never touches memories, commands, skills, settings, or history.
 - **Safe Docker cleanup.** Only prunes dangling images and build cache — never removes stopped containers or volumes.
 - **Single UAC prompt.** Elevated categories (system logs, VS cache, kernel reports) are batched into one admin PowerShell invocation.
