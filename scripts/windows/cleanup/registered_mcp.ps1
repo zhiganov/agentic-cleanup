@@ -52,13 +52,14 @@ function Resolve-McpLaunchPath {
 
 function Get-AncestorDirectories {
   param([string]$StartPath, [string]$StopPath)
-  $stop = [IO.Path]::GetFullPath($StopPath).TrimEnd('\', '/')
+  $stopPath = [IO.Path]::GetFullPath($StopPath)
+  $stop = $stopPath.TrimEnd('\', '/')
   $current = [IO.DirectoryInfo]::new([IO.Path]::GetFullPath($StartPath))
   while ($null -ne $current) {
-    $path = $current.FullName.TrimEnd('\', '/')
-    if (-not (Test-PathWithin $path $stop)) { break }
+    $path = $current.FullName
+    if (-not (Test-PathWithin $path $stopPath)) { break }
     $path
-    if ($path.Equals($stop, [StringComparison]::OrdinalIgnoreCase)) { break }
+    if ($path.TrimEnd('\', '/').Equals($stop, [StringComparison]::OrdinalIgnoreCase)) { break }
     $current = $current.Parent
   }
 }
@@ -95,14 +96,16 @@ function Get-OpenCodeConfigSources {
     })
   }
   $sources = [System.Collections.Generic.List[object]]::new()
-  $globalRoot = Join-Path ([IO.Path]::GetFullPath($HomePath)) '.config\opencode'
+  $configHome = if ($env:XDG_CONFIG_HOME) { [IO.Path]::GetFullPath($env:XDG_CONFIG_HOME) } else { Join-Path ([IO.Path]::GetFullPath($HomePath)) '.config' }
+  $globalRoot = Join-Path $configHome 'opencode'
   foreach ($name in @('opencode.json', 'opencode.jsonc')) {
     $path = Join-Path $globalRoot $name
     if (Test-Path -LiteralPath $path -PathType Leaf) {
       $sources.Add([ordered]@{ path = $path; scope = $ProjectPath; kind = 'global' })
     }
   }
-  foreach ($directory in @(Get-AncestorDirectories $ProjectPath $WorkspaceRoot)) {
+  $filesystemRoot = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($ProjectPath))
+  foreach ($directory in @(Get-AncestorDirectories $ProjectPath $filesystemRoot)) {
     foreach ($relative in @('opencode.json', 'opencode.jsonc', '.opencode\opencode.json', '.opencode\opencode.jsonc')) {
       $path = Join-Path $directory $relative
       if (Test-Path -LiteralPath $path -PathType Leaf) {

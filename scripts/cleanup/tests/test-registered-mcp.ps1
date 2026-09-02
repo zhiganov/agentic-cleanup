@@ -3,6 +3,7 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 . (Join-Path $repoRoot 'windows\cleanup\registered_mcp.ps1')
 $root = Join-Path ([IO.Path]::GetTempPath()) ("cleanup-mcp-test-{0}" -f [guid]::NewGuid())
+$originalXdgConfigHome = $env:XDG_CONFIG_HOME
 
 function Assert-True([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw "FAIL: $Message" }
@@ -61,6 +62,33 @@ try {
     $ownership = Get-RegisteredMcpOwnership -ProjectPath $projectA -WorkspaceRoot $workspace -HomePath $root -OpenCodeConfigPath $openCode -ClaudeConfigPath (Join-Path $root 'absent.json')
     Assert-True (@($ownership.owners).Count -eq 1 -and $ownership.owners[0].name -eq 'local') 'OpenCode V2 JSONC local registration is protective and remote registration is ignored'
 
+    $xdgConfigHome = Join-Path $root 'xdg-config'
+    $env:XDG_CONFIG_HOME = $xdgConfigHome
+    $xdgOpenCode = Join-Path $xdgConfigHome 'opencode\opencode.json'
+    Write-Json $xdgOpenCode ([ordered]@{
+        mcp = [ordered]@{ servers = [ordered]@{
+            xdg = [ordered]@{ type = 'local'; command = @('node', (Join-Path $projectA 'dist\xdg.js')) }
+        } }
+    })
+    $ownership = Get-RegisteredMcpOwnership -ProjectPath $projectA -WorkspaceRoot $workspace -HomePath (Join-Path $root 'empty-home') -ClaudeConfigPath (Join-Path $root 'absent.json')
+    Assert-True (@($ownership.owners | Where-Object name -eq 'xdg').Count -eq 1) 'OpenCode global discovery honors XDG_CONFIG_HOME'
+    Remove-Item -LiteralPath $xdgOpenCode -Force
+
+    $env:XDG_CONFIG_HOME = $null
+    $ancestorRoot = Join-Path $root 'ancestor-root'
+    $ancestorWorkspace = Join-Path $ancestorRoot 'workspace'
+    $ancestorProject = Join-Path $ancestorWorkspace 'project'
+    [IO.Directory]::CreateDirectory($ancestorProject) | Out-Null
+    Write-Json (Join-Path $ancestorRoot 'opencode.json') ([ordered]@{
+        mcp = [ordered]@{ servers = [ordered]@{
+            ancestor = [ordered]@{ type = 'local'; command = @('node', (Join-Path $ancestorProject 'dist\ancestor.js')) }
+        } }
+    })
+    $ownership = Get-RegisteredMcpOwnership -ProjectPath $ancestorProject -WorkspaceRoot $ancestorWorkspace -HomePath (Join-Path $root 'empty-home') -ClaudeConfigPath (Join-Path $root 'absent.json')
+    Assert-True (@($ownership.owners | Where-Object name -eq 'ancestor').Count -eq 1) 'OpenCode discovery includes config ancestors above the cleanup workspace root'
+    $allAncestors = @(Get-AncestorDirectories $ancestorProject ([IO.Path]::GetPathRoot($ancestorProject)))
+    Assert-True ($allAncestors[-1] -eq [IO.Path]::GetPathRoot($ancestorProject)) 'OpenCode ancestor discovery reaches the filesystem root without changing drive-root semantics'
+
     $boundary = Join-Path $root 'boundary.json'
     Write-Json $boundary ([ordered]@{
         mcpServers = [ordered]@{
@@ -83,6 +111,7 @@ try {
         Write-Output 'PASS: Malformed recognized MCP config fails closed'
     }
 } finally {
+    $env:XDG_CONFIG_HOME = $originalXdgConfigHome
     Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
 }
 

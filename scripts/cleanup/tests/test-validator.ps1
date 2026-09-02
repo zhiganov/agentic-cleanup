@@ -7,6 +7,7 @@ $builder = Join-Path $scriptsRoot 'build-plan.ps1'
 $validator = Join-Path $scriptsRoot 'validate-plan.ps1'
 $processFixture = Join-Path $scriptsRoot 'fixtures\windows-processes.json'
 $root = Join-Path ([IO.Path]::GetTempPath()) ("cleanup-validator-test-{0}" -f [guid]::NewGuid())
+$originalXdgConfigHome = $env:XDG_CONFIG_HOME
 
 function Add-TestFile([string]$Path) {
     [IO.Directory]::CreateDirectory((Split-Path -Parent $Path)) | Out-Null
@@ -26,6 +27,7 @@ function Assert-Fails([scriptblock]$Action, [string]$Message) {
 }
 
 try {
+    $env:XDG_CONFIG_HOME = $null
     $workspace = Join-Path $root 'workspace'
     $local = Join-Path $root 'local'
     $temp = Join-Path $root 'temp'
@@ -66,6 +68,22 @@ try {
     [IO.File]::WriteAllText($openCodeConfig, '{ malformed', [Text.UTF8Encoding]::new($false))
     Assert-Fails { & $validator -ScanPath $scan -PlanPath $plan -ProcessFixture $processFixture -HomePath $fakeHome -Quiet } 'Validator fails closed on malformed MCP configuration'
     Remove-Item -LiteralPath $openCodeConfig -Force
+
+    $xdgConfigHome = Join-Path $root 'xdg-config'
+    $env:XDG_CONFIG_HOME = $xdgConfigHome
+    $xdgOpenCodeConfig = Join-Path $xdgConfigHome 'opencode\opencode.json'
+    [IO.Directory]::CreateDirectory((Split-Path -Parent $xdgOpenCodeConfig)) | Out-Null
+    [ordered]@{ mcp = [ordered]@{ servers = [ordered]@{ late = [ordered]@{ type = 'local'; command = @('node', $registeredEntry) } } } } |
+        ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $xdgOpenCodeConfig -Encoding utf8NoBOM
+    Assert-Fails { & $validator -ScanPath $scan -PlanPath $plan -ProcessFixture $processFixture -HomePath $fakeHome -Quiet } 'Validator rejects node_modules registered through XDG_CONFIG_HOME after scanning'
+    Remove-Item -LiteralPath $xdgOpenCodeConfig -Force
+    $env:XDG_CONFIG_HOME = $null
+
+    $ancestorOpenCodeConfig = Join-Path $root 'opencode.json'
+    [ordered]@{ mcp = [ordered]@{ servers = [ordered]@{ late = [ordered]@{ type = 'local'; command = @('node', $registeredEntry) } } } } |
+        ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $ancestorOpenCodeConfig -Encoding utf8NoBOM
+    Assert-Fails { & $validator -ScanPath $scan -PlanPath $plan -ProcessFixture $processFixture -HomePath $fakeHome -Quiet } 'Validator rejects node_modules registered above the cleanup workspace root after scanning'
+    Remove-Item -LiteralPath $ancestorOpenCodeConfig -Force
 
     function Assert-InvalidNodeRoot([string]$Target, [string]$Message) {
         Add-TestFile (Join-Path $Target 'package\index.js')
@@ -116,6 +134,15 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Could not remove test junction' }
     Move-Item -LiteralPath $artifactReal -Destination $artifactDirectory
 
+    $nodeProject = Join-Path $workspace 'inactive-project'
+    $nodeProjectReal = Join-Path $root 'inactive-project-real'
+    Move-Item -LiteralPath $nodeProject -Destination $nodeProjectReal
+    New-Item -ItemType Junction -Path $nodeProject -Target $nodeProjectReal | Out-Null
+    Assert-Fails { & $validator -ScanPath $scan -PlanPath $plan -ProcessFixture $processFixture -HomePath $fakeHome -Quiet } 'Validator rejects a node_modules target redirected through an ancestor junction'
+    & cmd.exe /d /c rmdir "$nodeProject"
+    if ($LASTEXITCODE -ne 0) { throw 'Could not remove ancestor test junction' }
+    Move-Item -LiteralPath $nodeProjectReal -Destination $nodeProject
+
     $liveFixture = Join-Path $root 'live-process.json'
     @([ordered]@{ ProcessId = 500; ParentProcessId = 1; Name = 'node.exe'; CommandLine = "node `"$((Split-Path -Parent $artifact))\server.js`""; ExecutablePath = 'C:\Program Files\nodejs\node.exe' }) |
         ConvertTo-Json | Set-Content -LiteralPath $liveFixture -Encoding utf8NoBOM
@@ -136,6 +163,7 @@ try {
         $env:npm_config_cache = $originalNpmCache
     }
 } finally {
+    $env:XDG_CONFIG_HOME = $originalXdgConfigHome
     Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
 }
 

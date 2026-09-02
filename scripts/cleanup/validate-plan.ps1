@@ -32,6 +32,24 @@ function Test-PathInside([string]$Path, [string]$Root) {
         $p.StartsWith($r + '/', [StringComparison]::OrdinalIgnoreCase)
 }
 
+function Get-ReparsePointsInPath([string]$Path, [string]$Boundary) {
+    $target = [IO.Path]::GetFullPath($Path).TrimEnd('\', '/')
+    $root = [IO.Path]::GetFullPath($Boundary).TrimEnd('\', '/')
+    if (-not (Test-PathInside $target $root)) { $root = $target }
+    $candidates = [System.Collections.Generic.List[string]]::new()
+    $candidates.Add($root)
+    if ($target -ne $root) {
+        $current = $root
+        foreach ($segment in @([IO.Path]::GetRelativePath($root, $target) -split '[\\/]' | Where-Object { $_ })) {
+            $current = Join-Path $current $segment
+            $candidates.Add($current)
+        }
+    }
+    @($candidates | Where-Object {
+        (Test-Path -LiteralPath $_) -and [bool]((Get-Item -LiteralPath $_ -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)
+    })
+}
+
 function Get-NewestWrite([string]$Path) {
     $latest = (Get-ChildItem -LiteralPath $Path -File -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object LastWriteTimeUtc -Maximum).Maximum
     if ($null -eq $latest) { return (Get-Item -LiteralPath $Path).LastWriteTimeUtc }
@@ -126,8 +144,9 @@ foreach ($operation in $operationsToValidate) {
         Add-Check 'exists' (Test-Path -LiteralPath $target) $target
     }
     if ($operation.preconditions.rejectReparsePoint -and (Test-Path -LiteralPath $target)) {
-        $reparse = [bool]((Get-Item -LiteralPath $target -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)
-        Add-Check 'not-reparse-point' (-not $reparse) $target
+        $reparseBoundary = if (Test-PathInside $target $scan.workspace.root) { [string]$scan.workspace.root } else { $target }
+        $reparsePoints = @(Get-ReparsePointsInPath $target $reparseBoundary)
+        Add-Check 'no-reparse-points' ($reparsePoints.Count -eq 0) $(if ($reparsePoints.Count) { $reparsePoints -join ', ' } else { 'No reparse point exists from the approved root to the target' })
     }
     if ($operation.preconditions.liveness -eq 'refresh-before-execution') {
         $live = @($livePaths | Where-Object {
