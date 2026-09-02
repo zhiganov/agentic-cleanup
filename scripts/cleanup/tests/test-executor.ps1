@@ -20,6 +20,13 @@ function Assert-True([bool]$Condition, [string]$Message) {
     Write-Output "PASS: $Message"
 }
 
+function Assert-Fails([scriptblock]$Action, [string]$Message) {
+    try { & $Action; throw "FAIL: $Message" } catch {
+        if ($_.Exception.Message -eq "FAIL: $Message") { throw }
+        Write-Output "PASS: $Message"
+    }
+}
+
 try {
     $workspace = Join-Path $root 'workspace'
     $local = Join-Path $root 'local'
@@ -30,6 +37,10 @@ try {
     $scan = Join-Path $scratch 'scan.json'
     $plan = Join-Path $scratch 'plan.json'
     $resultPath = Join-Path $scratch 'result.json'
+    $testContracts = Join-Path $root 'contracts'
+    Copy-Item -LiteralPath $cleanupRoot -Destination $testContracts -Recurse
+    Move-Item -LiteralPath (Join-Path $testContracts 'validate-plan.ps1') -Destination (Join-Path $testContracts 'validate-plan-real.ps1')
+    Copy-Item -LiteralPath $planSwapWrapper -Destination (Join-Path $testContracts 'validate-plan.ps1')
     [IO.Directory]::CreateDirectory((Join-Path $workspace '.claude')) | Out-Null
     $env:TEMP = $temp
     Add-TestFile (Join-Path $temp 'ordinary\cache.bin')
@@ -43,10 +54,50 @@ try {
     Add-TestFile $artifact
     (Get-Item -LiteralPath $artifact).LastWriteTimeUtc = [DateTime]::UtcNow.AddDays(-2)
     Add-TestFile (Join-Path $windowsOld 'windows.bin')
+    $nodeModules = Join-Path $workspace 'mcp-project\node_modules'
+    Add-TestFile (Join-Path $nodeModules 'package\index.js')
 
-    & $scanner -OutputPath $scan -WorkspaceRoot $workspace -HomePath (Join-Path $root 'home') -LocalAppDataPath $local -NpmCachePath (Join-Path $local 'npm-cache') `
+    $fakeHome = Join-Path $root 'home'
+    & $scanner -OutputPath $scan -WorkspaceRoot $workspace -HomePath $fakeHome -LocalAppDataPath $local -NpmCachePath (Join-Path $local 'npm-cache') `
         -TempPath $temp -ConfigMsiPath $configMsi -WindowsOldPath $windowsOld -MinimumBuildArtifactBytes 1 `
-        -MinimumConfigMsiBytes 1 -SkipSessionCensus | Out-Null
+        -MinimumNodeModulesBytes 1 -MinimumConfigMsiBytes 1 -SkipSessionCensus | Out-Null
+    $nodePlan = Join-Path $root 'node-plan.json'
+    & $builder -ScanPath $scan -OutputPath $nodePlan -CategoryId 'node-modules' | Out-Null
+    $registeredEntry = Join-Path $workspace 'mcp-project\dist\server.js'
+    [IO.Directory]::CreateDirectory($fakeHome) | Out-Null
+    [ordered]@{ mcpServers = [ordered]@{ late = [ordered]@{ command = 'node'; args = @($registeredEntry) } } } |
+        ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $fakeHome '.claude.json') -Encoding utf8NoBOM
+    Assert-Fails { & $executor -ScanPath $scan -PlanPath $nodePlan -OutputPath (Join-Path $root 'home-context-result.json') -HomePath $fakeHome -WhatIf } 'Executor forwards custom HomePath to MCP revalidation'
+    Remove-Item -LiteralPath (Join-Path $fakeHome '.claude.json') -Force
+
+    $customClaude = Join-Path $root 'custom\claude.json'
+    $customOpenCode = Join-Path $root 'custom\opencode.json'
+    [IO.Directory]::CreateDirectory((Split-Path -Parent $customClaude)) | Out-Null
+    $customScan = Join-Path $root 'custom-context-scan.json'
+    & $scanner -OutputPath $customScan -WorkspaceRoot $workspace -HomePath (Join-Path $root 'empty-home') -LocalAppDataPath $local -NpmCachePath (Join-Path $local 'npm-cache') `
+        -TempPath $temp -ConfigMsiPath $configMsi -WindowsOldPath $windowsOld -ClaudeConfigPath $customClaude -OpenCodeConfigPath $customOpenCode `
+        -MinimumBuildArtifactBytes 1 -MinimumNodeModulesBytes 1 -MinimumConfigMsiBytes 1 -SkipSessionCensus | Out-Null
+    $customPlan = Join-Path $root 'custom-context-plan.json'
+    & $builder -ScanPath $customScan -OutputPath $customPlan -CategoryId 'node-modules' | Out-Null
+    $customResult = Join-Path $root 'claude-context-result.json'
+    $env:CLEANUP_TEST_LATE_CLAUDE_CONFIG = $customClaude
+    $env:CLEANUP_TEST_LATE_MCP_ENTRY = $registeredEntry
+    try {
+        & $executor -ScanPath $customScan -PlanPath $customPlan -OutputPath $customResult -ContractDirectory $testContracts `
+            -HomePath (Join-Path $root 'empty-home') -ClaudeConfigPath $customClaude -OpenCodeConfigPath $customOpenCode -WhatIf | Out-Null
+    } finally {
+        Remove-Item Env:CLEANUP_TEST_LATE_CLAUDE_CONFIG, Env:CLEANUP_TEST_LATE_MCP_ENTRY -ErrorAction SilentlyContinue
+    }
+    $customExecution = Get-Content -LiteralPath $customResult -Raw | ConvertFrom-Json -Depth 100
+    Assert-True ($customExecution.operations[0].status -eq 'failed') 'Executor forwards explicit Claude config paths to per-operation MCP revalidation'
+    Remove-Item -LiteralPath $customClaude -Force
+
+    [ordered]@{ mcp = [ordered]@{ servers = [ordered]@{ late = [ordered]@{ type = 'local'; command = @('node', $registeredEntry) } } } } |
+        ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $customOpenCode -Encoding utf8NoBOM
+    Assert-Fails { & $executor -ScanPath $customScan -PlanPath $customPlan -OutputPath (Join-Path $root 'opencode-context-result.json') -HomePath (Join-Path $root 'empty-home') `
+        -ClaudeConfigPath $customClaude -OpenCodeConfigPath $customOpenCode -WhatIf } 'Executor forwards explicit OpenCode config paths to MCP revalidation'
+    Remove-Item -LiteralPath $customOpenCode -Force
+
     $refreshPlan = Join-Path $root 'refresh-plan.json'
     & $builder -ScanPath $scan -OutputPath $refreshPlan -CategoryId @('package-manager-caches', 'build-artifacts') | Out-Null
     $refresh = Get-Content -LiteralPath $refreshPlan -Raw | ConvertFrom-Json -Depth 100
@@ -97,10 +148,6 @@ exit 1
     $originalPlanId = (Get-Content -LiteralPath $plan -Raw | ConvertFrom-Json -Depth 100).planId
     $replacementPlan = Join-Path $root 'replacement-plan.json'
     & $builder -ScanPath $scan -OutputPath $replacementPlan -CategoryId 'windows-temp-files' | Out-Null
-    $testContracts = Join-Path $root 'contracts'
-    Copy-Item -LiteralPath $cleanupRoot -Destination $testContracts -Recurse
-    Move-Item -LiteralPath (Join-Path $testContracts 'validate-plan.ps1') -Destination (Join-Path $testContracts 'validate-plan-real.ps1')
-    Copy-Item -LiteralPath $planSwapWrapper -Destination (Join-Path $testContracts 'validate-plan.ps1')
     $env:CLEANUP_TEST_REPLACEMENT_PLAN = $replacementPlan
     $env:CLEANUP_TEST_ACTIVE_PLAN = $plan
     $lockedPath = Join-Path $temp 'ordinary\cache.bin'

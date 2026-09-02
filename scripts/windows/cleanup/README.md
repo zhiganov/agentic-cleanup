@@ -31,6 +31,10 @@ hardcode a `/tmp/...` path inside a script.
 | `scrub.ps1` | `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scrub.ps1 -ListFile <file>` | Hook-safe batch deleter (one path per line) |
 | `execute-plan.ps1` | `pwsh -NoProfile -File execute-plan.ps1 -ScanPath <scan> -PlanPath <plan> -OutputPath <result>` | Validate and dispatch allowlisted operations |
 
+When `scan.ps1` uses a custom `HomePath`, `ClaudeConfigPath`, or
+`OpenCodeConfigPath`, pass the same values to `execute-plan.ps1`. The executor
+forwards that discovery context to initial and per-operation validation.
+
 Automatic UAC launching is intentionally not part of the first structured
 slice. Elevated operations use the same plan and validator but execute only
 when `execute-plan.ps1` is already running in a trusted elevated process;
