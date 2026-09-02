@@ -69,14 +69,15 @@ function Get-ClaudeConfigSources {
   $explicit = @($ExplicitPaths | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
   if ($explicit.Count -gt 0) {
     return @($explicit | ForEach-Object {
-      [ordered]@{ path = [IO.Path]::GetFullPath($_); scope = $ProjectPath; kind = 'explicit' }
+      $path = [IO.Path]::GetFullPath($_)
+      [ordered]@{ path = $path; scope = Split-Path -Parent $path; kind = 'explicit' }
     })
   }
   $sources = [System.Collections.Generic.List[object]]::new()
   $configRoot = if ($env:CLAUDE_CONFIG_DIR) { [IO.Path]::GetFullPath($env:CLAUDE_CONFIG_DIR) } else { [IO.Path]::GetFullPath($HomePath) }
   $userConfig = Join-Path $configRoot '.claude.json'
   if (Test-Path -LiteralPath $userConfig -PathType Leaf) {
-    $sources.Add([ordered]@{ path = $userConfig; scope = $ProjectPath; kind = 'user-local' })
+    $sources.Add([ordered]@{ path = $userConfig; scope = $configRoot; kind = 'user-local' })
   }
   foreach ($directory in @(Get-AncestorDirectories $ProjectPath $WorkspaceRoot)) {
     $projectConfig = Join-Path $directory '.mcp.json'
@@ -89,19 +90,28 @@ function Get-ClaudeConfigSources {
 
 function Get-OpenCodeConfigSources {
   param([string]$ProjectPath, [string]$WorkspaceRoot, [string]$HomePath, [string[]]$ExplicitPaths)
+  $configHome = if ($env:XDG_CONFIG_HOME) { [IO.Path]::GetFullPath($env:XDG_CONFIG_HOME) } else { Join-Path ([IO.Path]::GetFullPath($HomePath)) '.config' }
+  $globalRoot = Join-Path $configHome 'opencode'
   $explicit = @($ExplicitPaths | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
   if ($explicit.Count -gt 0) {
     return @($explicit | ForEach-Object {
-      [ordered]@{ path = [IO.Path]::GetFullPath($_); scope = $ProjectPath; kind = 'explicit' }
+      $path = [IO.Path]::GetFullPath($_)
+      $directory = Split-Path -Parent $path
+      $scope = if ($directory.Equals($globalRoot, [StringComparison]::OrdinalIgnoreCase)) {
+        $WorkspaceRoot
+      } elseif ((Split-Path -Leaf $directory) -eq '.opencode') {
+        Split-Path -Parent $directory
+      } else {
+        $directory
+      }
+      [ordered]@{ path = $path; scope = $scope; kind = 'explicit' }
     })
   }
   $sources = [System.Collections.Generic.List[object]]::new()
-  $configHome = if ($env:XDG_CONFIG_HOME) { [IO.Path]::GetFullPath($env:XDG_CONFIG_HOME) } else { Join-Path ([IO.Path]::GetFullPath($HomePath)) '.config' }
-  $globalRoot = Join-Path $configHome 'opencode'
   foreach ($name in @('opencode.json', 'opencode.jsonc')) {
     $path = Join-Path $globalRoot $name
     if (Test-Path -LiteralPath $path -PathType Leaf) {
-      $sources.Add([ordered]@{ path = $path; scope = $ProjectPath; kind = 'global' })
+      $sources.Add([ordered]@{ path = $path; scope = $WorkspaceRoot; kind = 'global' })
     }
   }
   $filesystemRoot = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($ProjectPath))

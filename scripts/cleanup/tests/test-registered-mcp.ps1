@@ -46,8 +46,9 @@ try {
     })
     $ownership = Get-RegisteredMcpOwnership -ProjectPath $projectA -WorkspaceRoot $workspace -HomePath (Join-Path $root 'empty-home')
     Assert-True (@($ownership.owners | Where-Object name -eq 'project').Count -eq 1) 'Claude project .mcp.json resolves relative launch paths'
+    Remove-Item -LiteralPath $claudeProject -Force
 
-    $openCode = Join-Path $root 'opencode.jsonc'
+    $openCode = Join-Path $projectA 'opencode.jsonc'
     [IO.File]::WriteAllText($openCode, @"
 {
   // Disabled static registrations remain protective.
@@ -61,6 +62,20 @@ try {
 "@, [Text.UTF8Encoding]::new($false))
     $ownership = Get-RegisteredMcpOwnership -ProjectPath $projectA -WorkspaceRoot $workspace -HomePath $root -OpenCodeConfigPath $openCode -ClaudeConfigPath (Join-Path $root 'absent.json')
     Assert-True (@($ownership.owners).Count -eq 1 -and $ownership.owners[0].name -eq 'local') 'OpenCode V2 JSONC local registration is protective and remote registration is ignored'
+    $ownership = Get-RegisteredMcpOwnership -ProjectPath $projectAB -WorkspaceRoot $workspace -HomePath $root -OpenCodeConfigPath $openCode -ClaudeConfigPath (Join-Path $root 'absent.json')
+    Assert-True (@($ownership.owners).Count -eq 0) 'Relative explicit OpenCode project registration does not protect a neighboring project'
+    Remove-Item -LiteralPath $openCode -Force
+
+    $claudeGlobalHome = Join-Path $root 'claude-global-home'
+    Write-Json (Join-Path $claudeGlobalHome '.claude.json') ([ordered]@{
+        mcpServers = [ordered]@{
+            relative = [ordered]@{ command = 'node'; args = @('.\dist\global.js') }
+        }
+    })
+    $ownership = Get-RegisteredMcpOwnership -ProjectPath $projectA -WorkspaceRoot $workspace -HomePath $claudeGlobalHome -OpenCodeConfigPath (Join-Path $root 'absent-opencode.json')
+    Assert-True (@($ownership.owners).Count -eq 0) 'Relative Claude user registration does not protect an unrelated project'
+    $ownership = Get-RegisteredMcpOwnership -ProjectPath $claudeGlobalHome -WorkspaceRoot $root -HomePath $claudeGlobalHome -OpenCodeConfigPath (Join-Path $root 'absent-opencode.json')
+    Assert-True (@($ownership.owners | Where-Object name -eq 'relative').Count -eq 1) 'Relative Claude user registration resolves from its configuration directory'
 
     $xdgConfigHome = Join-Path $root 'xdg-config'
     $env:XDG_CONFIG_HOME = $xdgConfigHome
@@ -72,6 +87,15 @@ try {
     })
     $ownership = Get-RegisteredMcpOwnership -ProjectPath $projectA -WorkspaceRoot $workspace -HomePath (Join-Path $root 'empty-home') -ClaudeConfigPath (Join-Path $root 'absent.json')
     Assert-True (@($ownership.owners | Where-Object name -eq 'xdg').Count -eq 1) 'OpenCode global discovery honors XDG_CONFIG_HOME'
+    Write-Json $xdgOpenCode ([ordered]@{
+        mcp = [ordered]@{ servers = [ordered]@{
+            relative = [ordered]@{ type = 'local'; command = @('node', '.\dist\global.js') }
+        } }
+    })
+    $ownership = Get-RegisteredMcpOwnership -ProjectPath $projectA -WorkspaceRoot $workspace -HomePath (Join-Path $root 'empty-home') -ClaudeConfigPath (Join-Path $root 'absent.json')
+    Assert-True (@($ownership.owners).Count -eq 0) 'Relative OpenCode global registration does not protect every candidate project'
+    $ownership = Get-RegisteredMcpOwnership -ProjectPath $workspace -WorkspaceRoot $workspace -HomePath (Join-Path $root 'empty-home') -ClaudeConfigPath (Join-Path $root 'absent.json')
+    Assert-True (@($ownership.owners | Where-Object name -eq 'relative').Count -eq 1) 'Relative OpenCode global registration resolves from the active cleanup workspace'
     Remove-Item -LiteralPath $xdgOpenCode -Force
 
     $env:XDG_CONFIG_HOME = $null
