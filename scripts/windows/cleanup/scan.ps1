@@ -182,14 +182,39 @@ function Get-NewestWrite([string]$Path) {
     [DateTime]$latest
 }
 
+function Invoke-GitProbe([string[]]$Arguments) {
+    $output = @(& git @Arguments 2>$null | ForEach-Object { [string]$_ })
+    [ordered]@{ exitCode = $LASTEXITCODE; output = $output }
+}
+
 function Get-GitEvidence([string]$Path) {
     $project = Split-Path -Parent $Path
-    if (-not (Get-Command git -ErrorAction SilentlyContinue)) { return [ordered]@{ active = $false; lastCommit = $null } }
-    $root = (& git -C $project rev-parse --show-toplevel 2>$null)
-    if (-not $root) { return [ordered]@{ active = $false; lastCommit = $null } }
-    $recent = (& git -C $root log -1 --since='4 weeks ago' --format=%cI 2>$null)
-    $last = (& git -C $root log -1 --format=%cI 2>$null)
-    [ordered]@{ active = [bool]$recent; lastCommit = if ($last) { [string]$last } else { $null } }
+    $current = [IO.DirectoryInfo]::new([IO.Path]::GetFullPath($project))
+    $gitBacked = $false
+    while ($null -ne $current) {
+        if (Test-Path -LiteralPath (Join-Path $current.FullName '.git')) {
+            $gitBacked = $true
+            break
+        }
+        $current = $current.Parent
+    }
+    if (-not $gitBacked) { return [ordered]@{ active = $false; lastCommit = $null } }
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) { throw "Git is unavailable for repository-backed project '$project'" }
+
+    $rootProbe = Invoke-GitProbe @('-C', $project, 'rev-parse', '--show-toplevel')
+    if ($rootProbe.exitCode -ne 0 -or @($rootProbe.output).Count -eq 0) {
+        throw "Git repository discovery failed for '$project' with exit code $($rootProbe.exitCode)"
+    }
+    $root = [string]@($rootProbe.output)[-1]
+    if (-not [IO.Path]::IsPathFullyQualified($root)) { throw "Git returned an invalid repository root for '$project'" }
+
+    $recentProbe = Invoke-GitProbe @('-C', $root, 'log', '-1', '--since=4 weeks ago', '--format=%cI')
+    if ($recentProbe.exitCode -ne 0) { throw "Git recent-history inspection failed for '$root' with exit code $($recentProbe.exitCode)" }
+    $lastProbe = Invoke-GitProbe @('-C', $root, 'log', '-1', '--format=%cI')
+    if ($lastProbe.exitCode -ne 0 -or @($lastProbe.output).Count -eq 0) {
+        throw "Git last-commit inspection failed for '$root' with exit code $($lastProbe.exitCode)"
+    }
+    [ordered]@{ active = @($recentProbe.output).Count -gt 0; lastCommit = [string]@($lastProbe.output)[-1] }
 }
 
 function Find-NodeModules([string]$Root) {

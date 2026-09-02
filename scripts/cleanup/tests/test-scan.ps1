@@ -11,6 +11,13 @@ function Assert-True([bool]$Condition, [string]$Message) {
     Write-Output "PASS: $Message"
 }
 
+function Assert-Fails([scriptblock]$Action, [string]$Message) {
+    try { & $Action; throw "FAIL: $Message" } catch {
+        if ($_.Exception.Message -eq "FAIL: $Message") { throw }
+        Write-Output "PASS: $Message"
+    }
+}
+
 function Add-TestFile([string]$Path, [int]$Bytes = 128) {
     [IO.Directory]::CreateDirectory((Split-Path -Parent $Path)) | Out-Null
     [IO.File]::WriteAllBytes($Path, [byte[]]::new($Bytes))
@@ -81,6 +88,34 @@ try {
     Assert-True (($scan.categories | Where-Object categoryId -eq 'windows-old').items[0].disposition -eq 'manual-only') 'Scanner keeps Windows.old manual-only'
     Assert-True ($scan.sessionCensus.status -eq 'unsupported') 'Fixture scan records an explicitly skipped session census'
     Assert-True ($scan.helpers.provenance.status -eq 'matched-published') 'Helper provenance ignores LF versus CRLF checkout differences'
+
+    $gitFailureWorkspace = Join-Path $root 'git-failure-workspace'
+    $gitFailureProject = Join-Path $gitFailureWorkspace 'repository-project'
+    Add-TestFile (Join-Path $gitFailureProject 'node_modules\package\index.js')
+    [IO.Directory]::CreateDirectory((Join-Path $gitFailureProject '.git')) | Out-Null
+    $fakeBin = Join-Path $root 'fake-git-bin'
+    [IO.Directory]::CreateDirectory($fakeBin) | Out-Null
+    $fakeGit = Join-Path $fakeBin 'git.cmd'
+    @"
+@echo off
+if "%~3"=="rev-parse" (
+  echo $gitFailureProject
+  exit /b 0
+)
+exit /b 7
+"@ | Set-Content -LiteralPath $fakeGit -Encoding ascii
+    $originalPath = $env:PATH
+    try {
+        $env:PATH = "$fakeBin;$originalPath"
+        Assert-Fails {
+            & $scanner -OutputPath (Join-Path $root 'git-failure-scan.json') -WorkspaceRoot $gitFailureWorkspace -HomePath $fakeHome `
+                -HelpersDirectory $helpers -LocalAppDataPath $local -NpmCachePath (Join-Path $local 'npm-cache') `
+                -TempPath $temp -ConfigMsiPath $configMsi -WindowsOldPath $windowsOld -MinimumNodeModulesBytes 1 `
+                -MinimumBuildArtifactBytes 1 -MinimumConfigMsiBytes 1 -SkipSessionCensus | Out-Null
+        } 'Scanner fails closed when Git history inspection fails'
+    } finally {
+        $env:PATH = $originalPath
+    }
 
     $openCodeWorkspace = Join-Path $root 'opencode-workspace'
     $openCodeNested = Join-Path $openCodeWorkspace 'packages\nested'

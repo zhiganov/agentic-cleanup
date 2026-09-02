@@ -19,7 +19,9 @@ execution, and results:
 Windows producers and executors live under `scripts/windows/cleanup/`:
 
 - `scan.ps1` currently covers six representative operation classes, including
-  inactive `node_modules` with registered-MCP protection.
+  inactive `node_modules` with registered-MCP protection. Non-Git projects are
+  distinguished from repository-backed projects whose Git inspection fails;
+  the latter stop the scan.
 - `registered_mcp.ps1` discovers static Claude Code and OpenCode V2 local MCP
   ownership without persisting commands, arguments, environment, or secrets.
   Recognized unresolved environment placeholders fail discovery closed.
