@@ -1,6 +1,6 @@
 # /cleanup helper scripts (Windows)
 
-Committed helpers for the `/cleanup` skill (`claude-config/commands/cleanup.md`).
+Committed helpers for the `/cleanup` skill (`claude-config/skills/agentic-cleanup/SKILL.md`).
 
 **Why files, not inline heredocs.** The skill used to instruct authoring these on
 every run by pasting code into bash heredocs. On Windows Git Bash that breaks twice
@@ -25,10 +25,15 @@ hardcode a `/tmp/...` path inside a script.
 | `winsdk.ps1` | `powershell.exe -NoProfile -File winsdk.ps1` | Old side-by-side Windows SDK versions |
 | `vs_orphans.ps1` | `powershell.exe -NoProfile -File vs_orphans.ps1` | Orphaned Visual Studio installs |
 | `live_paths.ps1` | `powershell.exe -NoProfile -File live_paths.ps1 [-Summary]` | Paths running processes depend on (stdout); session census (stderr) |
-| `scan.ps1` | `pwsh -NoProfile -File scan.ps1 -OutputPath <scan.json>` | Immutable five-category Windows evidence scan (PowerShell 7) |
+| `registered_mcp.ps1` | Dot-source from committed scan/validation helpers | Static Claude Code and OpenCode V2 local MCP ownership discovery |
+| `scan.ps1` | `pwsh -NoProfile -File scan.ps1 -OutputPath <scan.json>` | Immutable six-category Windows evidence scan (PowerShell 7) |
 | `assert_list.py` | `python assert_list.py <list> --require 'L=SUB' --forbid 'L=SUB'` | **Gate before `scrub.ps1`** — buckets the list; fails on a missing/forbidden/unclassified/empty entry |
 | `scrub.ps1` | `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scrub.ps1 -ListFile <file>` | Hook-safe batch deleter (one path per line) |
 | `execute-plan.ps1` | `pwsh -NoProfile -File execute-plan.ps1 -ScanPath <scan> -PlanPath <plan> -OutputPath <result>` | Validate and dispatch allowlisted operations |
+
+When `scan.ps1` uses a custom `HomePath`, `ClaudeConfigPath`, or
+`OpenCodeConfigPath`, pass the same values to `execute-plan.ps1`. The executor
+forwards that discovery context to initial and per-operation validation.
 
 Automatic UAC launching is intentionally not part of the first structured
 slice. Elevated operations use the same plan and validator but execute only

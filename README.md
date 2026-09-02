@@ -16,12 +16,12 @@ Windows (PowerShell):
 irm https://raw.githubusercontent.com/zhiganov/agentic-cleanup/master/install.ps1 | iex
 ```
 
-Both installers add the same runtime-neutral `cleanup.md` to:
+Both installers add the same thin `/cleanup` command to:
 
 - Claude Code: `~/.claude/commands/cleanup.md`
 - OpenCode V2: `${XDG_CONFIG_HOME:-~/.config}/opencode/commands/cleanup.md`
 
-Helpers, contracts, and the release manifest live once under `${XDG_DATA_HOME:-~/.local/share}/agentic-cleanup`. The installers stage and SHA-256 verify a complete release before publishing the manifest, and the command refuses to run if any existing runtime copy differs from that verified payload.
+The command delegates to an `agentic-cleanup` skill installed under each selected runtime's `skills/agentic-cleanup/SKILL.md`. The full workflow, helpers, contracts, and release manifest also live under `${XDG_DATA_HOME:-~/.local/share}/agentic-cleanup`. The installers stage and SHA-256 verify the complete release before publishing the manifest, and the skill refuses to run if any existing runtime command/skill pair differs from that verified payload.
 
 Install for only one runtime by setting `AGENTIC_CLEANUP_RUNTIME` to `claude` or `opencode` (`all` is the default):
 
@@ -35,14 +35,14 @@ irm https://raw.githubusercontent.com/zhiganov/agentic-cleanup/master/install.ps
 Remove-Item Env:AGENTIC_CLEANUP_RUNTIME
 ```
 
-A single-runtime upgrade refuses to continue if the other runtime already has a different `/cleanup` release. Use the default `all` mode to upgrade both copies, or remove the stale unselected copy first.
+A single-runtime upgrade refuses to continue if the other runtime already has a different or incomplete `/cleanup` command/skill pair. Use the default `all` mode to upgrade both copies, or remove the stale unselected pair first.
 
 ## Usage
 
 ```
 /cleanup              # scan, report, select, clean
 /cleanup --dry-run    # scan and report only
-/cleanup --structured-preview  # immutable five-category Windows evidence preview
+/cleanup --structured-preview  # immutable six-category Windows evidence preview
 ```
 
 The structured preview is the first migration slice of the testable contract
@@ -63,7 +63,7 @@ If [WizTree](https://www.diskanalyzer.com/) is installed, the scan phase complet
 
 ## Windows helper scripts
 
-On Windows the scan and delete steps are backed by committed helper scripts in [`scripts/windows/cleanup/`](./scripts/windows/cleanup/) — a size lookup over the WizTree CSV, the `node_modules` / build-artifact finder, the elevated WizTree export, the orphan/old-version discovery scripts, and allowlisted structured executors. Versioned scan/plan/result contracts live in [`scripts/cleanup/`](./scripts/cleanup/). The installers place both under the shared agent-neutral data directory; the command resolves them automatically. macOS/Linux runs need no helper scripts.
+On Windows the scan and delete steps are backed by committed helper scripts in [`scripts/windows/cleanup/`](./scripts/windows/cleanup/) — a size lookup over the WizTree CSV, the `node_modules` / build-artifact finder, the elevated WizTree export, the orphan/old-version discovery scripts, and allowlisted structured executors. Versioned scan/plan/result contracts live in [`scripts/cleanup/`](./scripts/cleanup/). The installers place both under the shared agent-neutral data directory; the skill resolves them automatically. macOS/Linux runs need no helper scripts.
 
 ## What It Scans (31 categories)
 
@@ -163,6 +163,7 @@ Which categories to clean? Enter numbers (e.g., 1,2,3), all, or none to cancel.
 - **WizTree = fast + safe.** Only used for size measurements, never deletes anything.
 - **Keeps newest versions.** Squirrel cleanup only removes old `app-*` directories.
 - **Respects active projects.** Only cleans node_modules and build artifacts in projects with no git activity in 4+ weeks.
+- **Protects registered MCP projects.** The structured path excludes `node_modules` owned by static Claude Code or OpenCode V2 local-server registrations and refreshes ownership before execution.
 - **Protects Claude Code data.** Never touches memories, commands, skills, settings, or history.
 - **Safe Docker cleanup.** Only prunes dangling images and build cache — never removes stopped containers or volumes.
 - **Single UAC prompt.** Elevated categories (system logs, VS cache, kernel reports) are batched into one admin PowerShell invocation.

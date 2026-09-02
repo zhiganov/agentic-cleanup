@@ -35,6 +35,34 @@ try {
     Remove-Item -LiteralPath $itemOutput -Force -ErrorAction SilentlyContinue
 }
 
+$nodeScanPath = Join-Path ([IO.Path]::GetTempPath()) ("cleanup-node-scan-{0}.json" -f [guid]::NewGuid())
+$nodeOutput = Join-Path ([IO.Path]::GetTempPath()) ("cleanup-node-plan-{0}.json" -f [guid]::NewGuid())
+try {
+    $nodeScan = Get-Content -LiteralPath $scan -Raw | ConvertFrom-Json -Depth 100
+    $nodeScan.categories = @($nodeScan.categories) + @([ordered]@{
+        categoryId = 'node-modules'; label = 'node_modules (Inactive)'; status = 'found'; statusReason = $null
+        sizes = [ordered]@{ logicalBytes = 1024; estimatedReclaimableBytes = 1024; protectedBytes = 0 }
+        items = @([ordered]@{
+            itemId = 'node-modules-fixture'; displayName = 'fixture node_modules'; disposition = 'eligible'
+            sizes = [ordered]@{ logicalBytes = 1024; estimatedReclaimableBytes = 1024; protectedBytes = 0 }
+            resources = @([ordered]@{ resourceId = 'node-modules-fixture-dir'; kind = 'directory'; canonicalPath = 'C:\Users\example\workspace\fixture\node_modules'; logicalBytes = 1024; protected = $false })
+            operationPreview = [ordered]@{ policyId = 'inactive-node-modules'; mode = 'whole-directory'; elevated = $false }
+            evidence = @(); riskFlags = @('refresh-liveness', 'refresh-registered-mcp-ownership'); requiresPerItemConfirmation = $false; affectedApplications = @()
+        })
+        warnings = @()
+    })
+    $nodeScan | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $nodeScanPath -Encoding utf8NoBOM
+    & $builder -ScanPath $nodeScanPath -OutputPath $nodeOutput -CategoryId 'node-modules' | Out-Null
+    $nodePlan = Get-Content -LiteralPath $nodeOutput -Raw | ConvertFrom-Json -Depth 100
+    $nodeOperation = @($nodePlan.operations)[0]
+    Assert-True ($nodeOperation.policyId -eq 'inactive-node-modules' -and $nodeOperation.executorId -eq 'remove-directory-tree') 'Builder maps node_modules to the allowlisted removal policy'
+    Assert-True ($nodeOperation.preconditions.rootPolicyId -eq 'workspace-node-modules-root') 'Builder carries the node_modules workspace root policy'
+    Assert-True ($nodeOperation.preconditions.registeredMcpOwnership -eq 'refresh-before-execution') 'Builder requires registered MCP ownership refresh for node_modules'
+} finally {
+    Remove-Item -LiteralPath $nodeScanPath -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $nodeOutput -Force -ErrorAction SilentlyContinue
+}
+
 $emptyOutput = Join-Path ([IO.Path]::GetTempPath()) ("cleanup-plan-empty-{0}.json" -f [guid]::NewGuid())
 try {
     try {

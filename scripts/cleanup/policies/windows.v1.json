@@ -44,6 +44,20 @@
       }
     },
     {
+      "policyId": "inactive-node-modules",
+      "executorId": "remove-directory-tree",
+      "mode": "whole-directory",
+      "elevated": false,
+      "rootPolicyId": "workspace-node-modules-root",
+      "preconditions": {
+        "requireExists": true,
+        "rejectReparsePoint": true,
+        "liveness": "refresh-before-execution",
+        "freshness": "not-applicable",
+        "registeredMcpOwnership": "refresh-before-execution"
+      }
+    },
+    {
       "policyId": "config-msi-leftovers",
       "executorId": "remove-directory-tree-elevated",
       "mode": "whole-directory",
@@ -82,6 +96,7 @@
   "rootPolicies": [
     { "rootPolicyId": "npm-cacache-root", "pathClass": "npm-cacache" },
     { "rootPolicyId": "windows-user-temp-root", "pathClass": "user-temp" },
+    { "rootPolicyId": "workspace-node-modules-root", "pathClass": "workspace-node-modules" },
     { "rootPolicyId": "workspace-build-artifact-root", "pathClass": "workspace-build-artifact" },
     { "rootPolicyId": "config-msi-root", "pathClass": "config-msi" },
     { "rootPolicyId": "windows-old-root", "pathClass": "windows-old" }

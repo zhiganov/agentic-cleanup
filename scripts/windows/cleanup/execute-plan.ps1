@@ -5,6 +5,9 @@ param(
     [Parameter(Mandatory)][string]$OutputPath,
     [string]$ContractDirectory,
     [string]$PolicyRegistryPath,
+    [string]$HomePath = $HOME,
+    [string[]]$ClaudeConfigPath,
+    [string[]]$OpenCodeConfigPath,
     [switch]$WhatIf
 )
 
@@ -74,6 +77,9 @@ $validationParameters = @{
     ScanDigest = $scanDigest
     PolicyRegistryPath = $PolicyRegistryPath
     HelpersDirectory = $PSScriptRoot
+    HomePath = $HomePath
+    ClaudeConfigPath = $ClaudeConfigPath
+    OpenCodeConfigPath = $OpenCodeConfigPath
     Quiet = $true
 }
 & $validator @validationParameters
