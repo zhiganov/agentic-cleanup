@@ -24,15 +24,20 @@ function Expand-McpPathToken {
     $value = [regex]::Replace($value, '\{env:([A-Za-z_][A-Za-z0-9_]*)\}', {
       param($match)
       $replacement = [Environment]::GetEnvironmentVariable($match.Groups[1].Value)
-      if ($null -eq $replacement) { $match.Value } else { $replacement }
+      if ([string]::IsNullOrEmpty($replacement)) { $match.Value } else { $replacement }
     })
   } else {
     $value = [regex]::Replace($value, '\$\{([A-Za-z_][A-Za-z0-9_]*)(:-([^}]*))?\}', {
       param($match)
       $replacement = [Environment]::GetEnvironmentVariable($match.Groups[1].Value)
       if ([string]::IsNullOrEmpty($replacement) -and $match.Groups[3].Success) { $replacement = $match.Groups[3].Value }
-      if ($null -eq $replacement) { $match.Value } else { $replacement }
+      if ([string]::IsNullOrEmpty($replacement) -and -not $match.Groups[3].Success) { $match.Value } else { $replacement }
     })
+  }
+  $unresolvedPattern = if ($Runtime -eq 'opencode') { '\{env:([A-Za-z_][A-Za-z0-9_]*)\}' } else { '\$\{([A-Za-z_][A-Za-z0-9_]*)(:-[^}]*)?\}' }
+  $unresolved = [regex]::Match($value, $unresolvedPattern)
+  if ($unresolved.Success) {
+    throw "Unresolved environment variable '$($unresolved.Groups[1].Value)' in $Runtime MCP registration"
   }
   $value
 }

@@ -8,6 +8,8 @@ $validator = Join-Path $scriptsRoot 'validate-plan.ps1'
 $processFixture = Join-Path $scriptsRoot 'fixtures\windows-processes.json'
 $root = Join-Path ([IO.Path]::GetTempPath()) ("cleanup-validator-test-{0}" -f [guid]::NewGuid())
 $originalXdgConfigHome = $env:XDG_CONFIG_HOME
+$unresolvedEnvName = 'CLEANUP_TEST_UNRESOLVED_MCP_ROOT'
+$originalUnresolvedEnv = [Environment]::GetEnvironmentVariable($unresolvedEnvName)
 
 function Add-TestFile([string]$Path) {
     [IO.Directory]::CreateDirectory((Split-Path -Parent $Path)) | Out-Null
@@ -28,6 +30,7 @@ function Assert-Fails([scriptblock]$Action, [string]$Message) {
 
 try {
     $env:XDG_CONFIG_HOME = $null
+    [Environment]::SetEnvironmentVariable($unresolvedEnvName, $null)
     $workspace = Join-Path $root 'workspace'
     $local = Join-Path $root 'local'
     $temp = Join-Path $root 'temp'
@@ -68,6 +71,12 @@ try {
     [IO.File]::WriteAllText($openCodeConfig, '{ malformed', [Text.UTF8Encoding]::new($false))
     Assert-Fails { & $validator -ScanPath $scan -PlanPath $plan -ProcessFixture $processFixture -HomePath $fakeHome -Quiet } 'Validator fails closed on malformed MCP configuration'
     Remove-Item -LiteralPath $openCodeConfig -Force
+
+    $unresolvedToken = '${' + $unresolvedEnvName + '}\dist\server.js'
+    [ordered]@{ mcpServers = [ordered]@{ late = [ordered]@{ command = 'node'; args = @($unresolvedToken) } } } |
+        ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $fakeHome '.claude.json') -Encoding utf8NoBOM
+    Assert-Fails { & $validator -ScanPath $scan -PlanPath $plan -ProcessFixture $processFixture -HomePath $fakeHome -Quiet } 'Validator fails closed on unresolved environment-backed MCP registration'
+    Remove-Item -LiteralPath (Join-Path $fakeHome '.claude.json') -Force
 
     $xdgConfigHome = Join-Path $root 'xdg-config'
     $env:XDG_CONFIG_HOME = $xdgConfigHome
@@ -164,6 +173,7 @@ try {
     }
 } finally {
     $env:XDG_CONFIG_HOME = $originalXdgConfigHome
+    [Environment]::SetEnvironmentVariable($unresolvedEnvName, $originalUnresolvedEnv)
     Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
 }
 

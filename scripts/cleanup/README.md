@@ -22,6 +22,7 @@ Windows producers and executors live under `scripts/windows/cleanup/`:
   inactive `node_modules` with registered-MCP protection.
 - `registered_mcp.ps1` discovers static Claude Code and OpenCode V2 local MCP
   ownership without persisting commands, arguments, environment, or secrets.
+  Recognized unresolved environment placeholders fail discovery closed.
 - `execute-plan.ps1` dispatches only registered executors and writes a verified
   result. It never launches user-writable code through UAC; elevated operations
   require an already elevated trusted process or return `manual-required`.

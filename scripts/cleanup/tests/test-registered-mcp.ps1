@@ -4,10 +4,21 @@ $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 . (Join-Path $repoRoot 'windows\cleanup\registered_mcp.ps1')
 $root = Join-Path ([IO.Path]::GetTempPath()) ("cleanup-mcp-test-{0}" -f [guid]::NewGuid())
 $originalXdgConfigHome = $env:XDG_CONFIG_HOME
+$claudeEnvName = 'CLEANUP_TEST_CLAUDE_MCP_ROOT'
+$openCodeEnvName = 'CLEANUP_TEST_OPENCODE_MCP_ROOT'
+$originalClaudeEnv = [Environment]::GetEnvironmentVariable($claudeEnvName)
+$originalOpenCodeEnv = [Environment]::GetEnvironmentVariable($openCodeEnvName)
 
 function Assert-True([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw "FAIL: $Message" }
     Write-Output "PASS: $Message"
+}
+
+function Assert-Fails([scriptblock]$Action, [string]$Message) {
+    try { & $Action; throw "FAIL: $Message" } catch {
+        if ($_.Exception.Message -eq "FAIL: $Message") { throw }
+        Write-Output "PASS: $Message"
+    }
 }
 
 function Write-Json([string]$Path, [object]$Value) {
@@ -16,6 +27,8 @@ function Write-Json([string]$Path, [object]$Value) {
 }
 
 try {
+    [Environment]::SetEnvironmentVariable($claudeEnvName, $null)
+    [Environment]::SetEnvironmentVariable($openCodeEnvName, $null)
     $workspace = Join-Path $root 'workspace'
     $projectA = Join-Path $workspace 'project-a'
     $projectAB = Join-Path $workspace 'project-ab'
@@ -122,6 +135,42 @@ try {
     $ownership = Get-RegisteredMcpOwnership -ProjectPath $projectA -WorkspaceRoot $workspace -HomePath $root -ClaudeConfigPath $boundary
     Assert-True (@($ownership.owners).Count -eq 0) 'Separator-aware ownership does not confuse project-a with project-ab'
 
+    $environmentBacked = Join-Path $root 'environment-backed.json'
+    $claudeToken = '${' + $claudeEnvName + '}\dist\server.js'
+    Write-Json $environmentBacked ([ordered]@{
+        mcpServers = [ordered]@{
+            environment = [ordered]@{ command = 'node'; args = @($claudeToken) }
+        }
+    })
+    Assert-Fails {
+        Get-RegisteredMcpOwnership -ProjectPath $projectA -WorkspaceRoot $workspace -HomePath $root -ClaudeConfigPath $environmentBacked | Out-Null
+    } 'Unresolved Claude environment-backed registration fails closed'
+    [Environment]::SetEnvironmentVariable($claudeEnvName, $projectA)
+    $ownership = Get-RegisteredMcpOwnership -ProjectPath $projectA -WorkspaceRoot $workspace -HomePath $root -ClaudeConfigPath $environmentBacked
+    Assert-True (@($ownership.owners | Where-Object name -eq 'environment').Count -eq 1) 'Defined Claude environment-backed registration resolves normally'
+    [Environment]::SetEnvironmentVariable($claudeEnvName, $null)
+    $fallbackToken = '${' + $claudeEnvName + ':-' + $projectA + '}\dist\fallback.js'
+    Write-Json $environmentBacked ([ordered]@{
+        mcpServers = [ordered]@{
+            fallback = [ordered]@{ command = 'node'; args = @($fallbackToken) }
+        }
+    })
+    $ownership = Get-RegisteredMcpOwnership -ProjectPath $projectA -WorkspaceRoot $workspace -HomePath $root -ClaudeConfigPath $environmentBacked
+    Assert-True (@($ownership.owners | Where-Object name -eq 'fallback').Count -eq 1) 'Claude environment fallback remains resolvable'
+
+    $openCodeToken = '{env:' + $openCodeEnvName + '}\dist\server.js'
+    Write-Json $environmentBacked ([ordered]@{
+        mcp = [ordered]@{ servers = [ordered]@{
+            environment = [ordered]@{ type = 'local'; command = @('node', $openCodeToken) }
+        } }
+    })
+    Assert-Fails {
+        Get-RegisteredMcpOwnership -ProjectPath $projectA -WorkspaceRoot $workspace -HomePath $root -OpenCodeConfigPath $environmentBacked -ClaudeConfigPath (Join-Path $root 'absent.json') | Out-Null
+    } 'Unresolved OpenCode environment-backed registration fails closed'
+    [Environment]::SetEnvironmentVariable($openCodeEnvName, $projectA)
+    $ownership = Get-RegisteredMcpOwnership -ProjectPath $projectA -WorkspaceRoot $workspace -HomePath $root -OpenCodeConfigPath $environmentBacked -ClaudeConfigPath (Join-Path $root 'absent.json')
+    Assert-True (@($ownership.owners | Where-Object name -eq 'environment').Count -eq 1) 'Defined OpenCode environment-backed registration resolves normally'
+
     $serialized = $ownership | ConvertTo-Json -Depth 20
     Assert-True ($serialized -notmatch 'command|args|disabled') 'Ownership evidence does not expose command vectors or server settings'
 
@@ -136,6 +185,8 @@ try {
     }
 } finally {
     $env:XDG_CONFIG_HOME = $originalXdgConfigHome
+    [Environment]::SetEnvironmentVariable($claudeEnvName, $originalClaudeEnv)
+    [Environment]::SetEnvironmentVariable($openCodeEnvName, $originalOpenCodeEnv)
     Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
 }
 
