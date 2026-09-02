@@ -1,6 +1,6 @@
 # /cleanup helper scripts (Windows)
 
-Committed helpers for the `/cleanup` skill (`claude-config/commands/cleanup.md`).
+Committed helpers for the `/cleanup` skill (`claude-config/skills/agentic-cleanup/SKILL.md`).
 
 **Why files, not inline heredocs.** The skill used to instruct authoring these on
 every run by pasting code into bash heredocs. On Windows Git Bash that breaks twice

@@ -14,9 +14,10 @@ $installOpenCode = $Runtime -in @('all', 'opencode')
 Write-Host 'Installing agentic-cleanup...'
 
 $stage = Join-Path ([IO.Path]::GetTempPath()) ('agentic-cleanup-install-' + [guid]::NewGuid())
-New-Item -ItemType Directory -Force -Path "$stage\scripts\windows\cleanup", "$stage\scripts\cleanup\schemas", "$stage\scripts\cleanup\policies" | Out-Null
+New-Item -ItemType Directory -Force -Path "$stage\skills\agentic-cleanup", "$stage\scripts\windows\cleanup", "$stage\scripts\cleanup\schemas", "$stage\scripts\cleanup\policies" | Out-Null
 try {
   Invoke-WebRequest -Uri "$RepoUrl/cleanup.md" -OutFile "$stage\cleanup.md"
+  Invoke-WebRequest -Uri "$RepoUrl/skills/agentic-cleanup/SKILL.md" -OutFile "$stage\skills\agentic-cleanup\SKILL.md"
 
   $scripts = @('wt_lookup.py','find_targets.py','assert_list.py','live_paths.ps1','registered_mcp.ps1','diskspace.ps1','run_wiztree.ps1','squirrel.ps1',
                'appdata_orphans.ps1','winsdk.ps1','vs_orphans.ps1','scrub.ps1','scan.ps1','execute-plan.ps1','README.md')
@@ -33,7 +34,7 @@ try {
   }
 
   Invoke-WebRequest -Uri "$RepoUrl/install-manifest.sha256" -OutFile "$stage\install-manifest.sha256"
-  $expectedPaths = @('cleanup.md') + @($scripts | ForEach-Object { "scripts/windows/cleanup/$_" }) + @($contracts | ForEach-Object { "scripts/cleanup/$_" })
+  $expectedPaths = @('cleanup.md', 'skills/agentic-cleanup/SKILL.md') + @($scripts | ForEach-Object { "scripts/windows/cleanup/$_" }) + @($contracts | ForEach-Object { "scripts/cleanup/$_" })
   $manifestLines = @(Get-Content -LiteralPath "$stage\install-manifest.sha256")
   if ($manifestLines.Count -ne $expectedPaths.Count) { throw 'Cleanup install manifest inventory is incomplete' }
   $seenPaths = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
@@ -49,46 +50,61 @@ try {
 
   $claudeCommand = Join-Path $ClaudeDir 'commands\cleanup.md'
   $openCodeCommand = Join-Path $OpenCodeDir 'commands\cleanup.md'
+  $claudeSkill = Join-Path $ClaudeDir 'skills\agentic-cleanup\SKILL.md'
+  $openCodeSkill = Join-Path $OpenCodeDir 'skills\agentic-cleanup\SKILL.md'
   $protectedTargets = @(
     $DataDir, "$DataDir\cleanup.md", "$DataDir\install-manifest.sha256", "$DataDir\installed-runtimes",
+    "$DataDir\skills", "$DataDir\skills\agentic-cleanup", "$DataDir\skills\agentic-cleanup\SKILL.md",
     "$DataDir\scripts", "$DataDir\scripts\windows", "$DataDir\scripts\windows\cleanup",
     "$DataDir\scripts\cleanup", "$DataDir\scripts\cleanup\schemas", "$DataDir\scripts\cleanup\policies",
-    $claudeCommand, $openCodeCommand
+    $claudeCommand, $claudeSkill, $openCodeCommand, $openCodeSkill
   )
-  if ($installClaude) { $protectedTargets += @($ClaudeDir, (Split-Path -Parent $claudeCommand)) }
-  if ($installOpenCode) { $protectedTargets += @($OpenCodeDir, (Split-Path -Parent $openCodeCommand)) }
+  if ($installClaude) { $protectedTargets += @($ClaudeDir, (Split-Path -Parent $claudeCommand), (Split-Path -Parent (Split-Path -Parent $claudeSkill)), (Split-Path -Parent $claudeSkill)) }
+  if ($installOpenCode) { $protectedTargets += @($OpenCodeDir, (Split-Path -Parent $openCodeCommand), (Split-Path -Parent (Split-Path -Parent $openCodeSkill)), (Split-Path -Parent $openCodeSkill)) }
   foreach ($target in $protectedTargets) {
     if ((Test-Path -LiteralPath $target) -and ((Get-Item -LiteralPath $target -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
       throw "Refusing to overwrite cleanup install reparse point: $target"
     }
   }
 
-  $stagedPayloadHash = (Get-FileHash -LiteralPath "$stage\cleanup.md" -Algorithm SHA256).Hash
-  foreach ($unselectedCommand in @(
-    [pscustomobject]@{ Selected = $installClaude; Path = $claudeCommand; Runtime = 'Claude Code' },
-    [pscustomobject]@{ Selected = $installOpenCode; Path = $openCodeCommand; Runtime = 'OpenCode' }
+  $stagedCommandHash = (Get-FileHash -LiteralPath "$stage\cleanup.md" -Algorithm SHA256).Hash
+  $stagedSkillHash = (Get-FileHash -LiteralPath "$stage\skills\agentic-cleanup\SKILL.md" -Algorithm SHA256).Hash
+  foreach ($unselectedRuntime in @(
+    [pscustomobject]@{ Selected = $installClaude; Command = $claudeCommand; Skill = $claudeSkill; Runtime = 'Claude Code' },
+    [pscustomobject]@{ Selected = $installOpenCode; Command = $openCodeCommand; Skill = $openCodeSkill; Runtime = 'OpenCode' }
   )) {
-    if (-not $unselectedCommand.Selected -and (Test-Path -LiteralPath $unselectedCommand.Path) -and
-        (Get-FileHash -LiteralPath $unselectedCommand.Path -Algorithm SHA256).Hash -ne $stagedPayloadHash) {
-      throw "Refusing to leave a stale $($unselectedCommand.Runtime) command: $($unselectedCommand.Path). Install all runtimes or remove that command first."
+    if (-not $unselectedRuntime.Selected -and ((Test-Path -LiteralPath $unselectedRuntime.Command) -or (Test-Path -LiteralPath $unselectedRuntime.Skill))) {
+      if (-not (Test-Path -LiteralPath $unselectedRuntime.Command -PathType Leaf) -or
+          (Get-FileHash -LiteralPath $unselectedRuntime.Command -Algorithm SHA256).Hash -ne $stagedCommandHash) {
+        throw "Refusing to leave a stale $($unselectedRuntime.Runtime) command: $($unselectedRuntime.Command). Install all runtimes or remove that command first."
+      }
+      if (-not (Test-Path -LiteralPath $unselectedRuntime.Skill -PathType Leaf) -or
+          (Get-FileHash -LiteralPath $unselectedRuntime.Skill -Algorithm SHA256).Hash -ne $stagedSkillHash) {
+        throw "Refusing to leave a stale $($unselectedRuntime.Runtime) skill: $($unselectedRuntime.Skill). Install all runtimes or remove that skill first."
+      }
     }
   }
 
-  New-Item -ItemType Directory -Force -Path "$DataDir\scripts\windows\cleanup", "$DataDir\scripts\cleanup" | Out-Null
+  New-Item -ItemType Directory -Force -Path "$DataDir\skills\agentic-cleanup", "$DataDir\scripts\windows\cleanup", "$DataDir\scripts\cleanup" | Out-Null
   Copy-Item -LiteralPath "$stage\cleanup.md" -Destination "$DataDir\cleanup.md" -Force
+  Copy-Item -LiteralPath "$stage\skills\agentic-cleanup\SKILL.md" -Destination "$DataDir\skills\agentic-cleanup\SKILL.md" -Force
   Copy-Item -Path "$stage\scripts\windows\cleanup\*" -Destination "$DataDir\scripts\windows\cleanup" -Recurse -Force
   Copy-Item -Path "$stage\scripts\cleanup\*" -Destination "$DataDir\scripts\cleanup" -Recurse -Force
   $payloadHash = (Get-FileHash -LiteralPath "$DataDir\cleanup.md" -Algorithm SHA256).Hash
   if ($installClaude) {
-    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $claudeCommand) | Out-Null
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $claudeCommand), (Split-Path -Parent $claudeSkill) | Out-Null
     Copy-Item -LiteralPath "$stage\cleanup.md" -Destination $claudeCommand -Force
+    Copy-Item -LiteralPath "$stage\skills\agentic-cleanup\SKILL.md" -Destination $claudeSkill -Force
     if ((Get-FileHash -LiteralPath $claudeCommand -Algorithm SHA256).Hash -ne $payloadHash) { throw 'Claude Code command copy does not match the verified shared payload' }
+    if ((Get-FileHash -LiteralPath $claudeSkill -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath "$DataDir\skills\agentic-cleanup\SKILL.md" -Algorithm SHA256).Hash) { throw 'Claude Code skill copy does not match the verified shared payload' }
     Write-Host "Installed /cleanup for Claude Code -> $claudeCommand"
   }
   if ($installOpenCode) {
-    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $openCodeCommand) | Out-Null
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $openCodeCommand), (Split-Path -Parent $openCodeSkill) | Out-Null
     Copy-Item -LiteralPath "$stage\cleanup.md" -Destination $openCodeCommand -Force
+    Copy-Item -LiteralPath "$stage\skills\agentic-cleanup\SKILL.md" -Destination $openCodeSkill -Force
     if ((Get-FileHash -LiteralPath $openCodeCommand -Algorithm SHA256).Hash -ne $payloadHash) { throw 'OpenCode command copy does not match the verified shared payload' }
+    if ((Get-FileHash -LiteralPath $openCodeSkill -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath "$DataDir\skills\agentic-cleanup\SKILL.md" -Algorithm SHA256).Hash) { throw 'OpenCode skill copy does not match the verified shared payload' }
     Write-Host "Installed /cleanup for OpenCode V2 -> $openCodeCommand"
   }
   Remove-Item -LiteralPath "$DataDir\installed-runtimes" -Force -ErrorAction SilentlyContinue

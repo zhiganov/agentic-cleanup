@@ -17,6 +17,7 @@ function Get-NormalizedDigest([string]$Path) {
 
 function Resolve-Source([string]$InstallPath) {
     if ($InstallPath -eq 'cleanup.md') { return Join-Path $repoRoot 'cleanup.md' }
+    if ($InstallPath -eq 'skills/agentic-cleanup/SKILL.md') { return Join-Path $repoRoot 'skills\agentic-cleanup\SKILL.md' }
     if ($InstallPath.StartsWith('scripts/windows/cleanup/')) {
         return Join-Path $repoRoot ($InstallPath -replace '/', '\')
     }
@@ -28,20 +29,26 @@ function Resolve-Source([string]$InstallPath) {
 
 $commandText = [IO.File]::ReadAllText((Join-Path $repoRoot 'cleanup.md'))
 $positionPlaceholder = [regex]'\$(\d+)'
-Assert-True (-not $commandText.Contains('$ARGUMENTS')) 'Command template contains no OpenCode all-arguments placeholder collisions'
+Assert-True (([regex]::Matches($commandText, '\$ARGUMENTS')).Count -eq 1) 'Thin command forwards the complete argument string exactly once'
 Assert-True (-not $positionPlaceholder.IsMatch($commandText)) 'Command template contains no OpenCode positional placeholder collisions'
+Assert-True ($commandText.Length -lt 300) 'Command template stays thin enough not to dump the workflow into chat'
+Assert-True ($commandText.Contains('`agentic-cleanup` skill')) 'Command delegates to the installed cleanup skill'
 $sampleArguments = '--dry-run'
-$renderedCommand = $commandText + "`n`n" + $sampleArguments
-Assert-True ($renderedCommand.EndsWith($sampleArguments, [StringComparison]::Ordinal)) 'OpenCode fallback rendering appends command arguments intact'
-Assert-True ($renderedCommand.Contains('$env:TEMP')) 'OpenCode fallback rendering preserves shell variable references'
+$renderedCommand = $commandText.Replace('$ARGUMENTS', $sampleArguments)
+Assert-True ($renderedCommand.Contains($sampleArguments)) 'OpenCode rendering forwards command arguments intact'
+
+$skillText = [IO.File]::ReadAllText((Join-Path $repoRoot 'skills\agentic-cleanup\SKILL.md'))
+Assert-True ($skillText.Contains('name: agentic-cleanup')) 'Cleanup skill declares its discoverable name'
+Assert-True ($skillText.Contains('# Developer Workstation Disk Cleanup')) 'Cleanup skill owns the full workflow'
+Assert-True ($skillText.Contains('manifest_paths=(')) 'Cleanup skill retains the installed integrity preamble'
 
 $entries = foreach ($line in Get-Content -LiteralPath $manifestPath) {
     if ($line -notmatch '^([0-9a-f]{64})  (.+)$') { throw "Invalid manifest line: $line" }
     [ordered]@{ digest = $Matches[1]; installPath = $Matches[2]; sourcePath = Resolve-Source $Matches[2] }
 }
 
-Assert-True (@($entries).Count -eq 25) 'Install manifest lists every command, helper, contract, schema, and policy file'
-Assert-True (@($entries.installPath | Sort-Object -Unique).Count -eq 25) 'Install manifest inventory has no duplicate paths'
+Assert-True (@($entries).Count -eq 26) 'Install manifest lists every command, skill, helper, contract, schema, and policy file'
+Assert-True (@($entries.installPath | Sort-Object -Unique).Count -eq 26) 'Install manifest inventory has no duplicate paths'
 foreach ($entry in $entries) {
     Assert-True (Test-Path -LiteralPath $entry.sourcePath) "Manifest source exists: $($entry.installPath)"
     Assert-True ((Get-NormalizedDigest $entry.sourcePath) -eq $entry.digest) "Manifest digest matches: $($entry.installPath)"
@@ -72,6 +79,7 @@ $powerShellInstaller = [IO.File]::ReadAllText((Join-Path $repoRoot 'install.ps1'
 foreach ($installer in @($shellInstaller, $powerShellInstaller)) {
     Assert-True ($installer.Contains('zhiganov/agentic-cleanup')) 'Installer fetches the renamed repository'
     Assert-True ($installer.Contains('opencode')) 'Installer publishes an OpenCode command copy'
+    Assert-True ($installer.Contains('skills/agentic-cleanup')) 'Installer publishes the cleanup skill'
     Assert-True ($installer.Contains('agentic-cleanup')) 'Installer publishes an agent-neutral shared payload'
 }
 
