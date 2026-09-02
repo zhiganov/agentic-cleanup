@@ -60,11 +60,9 @@ fi
 
 # Publish the manifest last so an interrupted update fails closed.
 for target in "$DATA_DIR" "$DATA_DIR/cleanup.md" "$DATA_DIR/install-manifest.sha256" "$DATA_DIR/installed-runtimes" \
-              "$DATA_DIR/skills" "$DATA_DIR/skills/agentic-cleanup" "$DATA_DIR/skills/agentic-cleanup/SKILL.md" \
-              "$DATA_DIR/scripts" "$DATA_DIR/scripts/windows" "$DATA_DIR/scripts/windows/cleanup" \
-              "$DATA_DIR/scripts/cleanup" "$DATA_DIR/scripts/cleanup/schemas" "$DATA_DIR/scripts/cleanup/policies" \
-              "$CLAUDE_DIR/commands/cleanup.md" "$CLAUDE_DIR/skills/agentic-cleanup/SKILL.md" \
-              "$OPENCODE_DIR/commands/cleanup.md" "$OPENCODE_DIR/skills/agentic-cleanup/SKILL.md"; do
+               "$DATA_DIR/skills" "$DATA_DIR/skills/agentic-cleanup" "$DATA_DIR/skills/agentic-cleanup/SKILL.md" \
+               "$DATA_DIR/scripts" "$DATA_DIR/scripts/windows" "$DATA_DIR/scripts/windows/cleanup" \
+               "$DATA_DIR/scripts/cleanup" "$DATA_DIR/scripts/cleanup/schemas" "$DATA_DIR/scripts/cleanup/policies"; do
   [ ! -L "$target" ] || { echo "Refusing to overwrite symlink: $target" >&2; exit 1; }
 done
 if [ "$install_claude" -eq 1 ]; then
@@ -78,27 +76,6 @@ if [ "$install_opencode" -eq 1 ]; then
                 "$OPENCODE_DIR/skills" "$OPENCODE_DIR/skills/agentic-cleanup" "$OPENCODE_DIR/skills/agentic-cleanup/SKILL.md"; do
     [ ! -L "$target" ] || { echo "Refusing to overwrite symlink: $target" >&2; exit 1; }
   done
-fi
-
-if [ "$install_claude" -eq 0 ] && { [ -e "$CLAUDE_DIR/commands/cleanup.md" ] || [ -e "$CLAUDE_DIR/skills/agentic-cleanup/SKILL.md" ]; }; then
-  cmp -s "$stage/cleanup.md" "$CLAUDE_DIR/commands/cleanup.md" || {
-    echo "Refusing to leave a stale Claude Code command: $CLAUDE_DIR/commands/cleanup.md. Install all runtimes or remove that command first." >&2
-    exit 1
-  }
-  cmp -s "$stage/skills/agentic-cleanup/SKILL.md" "$CLAUDE_DIR/skills/agentic-cleanup/SKILL.md" || {
-    echo "Refusing to leave a stale Claude Code skill: $CLAUDE_DIR/skills/agentic-cleanup/SKILL.md. Install all runtimes or remove that skill first." >&2
-    exit 1
-  }
-fi
-if [ "$install_opencode" -eq 0 ] && { [ -e "$OPENCODE_DIR/commands/cleanup.md" ] || [ -e "$OPENCODE_DIR/skills/agentic-cleanup/SKILL.md" ]; }; then
-  cmp -s "$stage/cleanup.md" "$OPENCODE_DIR/commands/cleanup.md" || {
-    echo "Refusing to leave a stale OpenCode command: $OPENCODE_DIR/commands/cleanup.md. Install all runtimes or remove that command first." >&2
-    exit 1
-  }
-  cmp -s "$stage/skills/agentic-cleanup/SKILL.md" "$OPENCODE_DIR/skills/agentic-cleanup/SKILL.md" || {
-    echo "Refusing to leave a stale OpenCode skill: $OPENCODE_DIR/skills/agentic-cleanup/SKILL.md. Install all runtimes or remove that skill first." >&2
-    exit 1
-  }
 fi
 
 mkdir -p "$DATA_DIR/skills/agentic-cleanup" "$DATA_DIR/scripts/windows/cleanup" "$DATA_DIR/scripts/cleanup"

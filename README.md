@@ -21,7 +21,7 @@ Both installers add the same thin `/cleanup` command to:
 - Claude Code: `~/.claude/commands/cleanup.md`
 - OpenCode V2: `${XDG_CONFIG_HOME:-~/.config}/opencode/commands/cleanup.md`
 
-The command delegates to an `agentic-cleanup` skill installed under each selected runtime's `skills/agentic-cleanup/SKILL.md`. The full workflow, helpers, contracts, and release manifest also live under `${XDG_DATA_HOME:-~/.local/share}/agentic-cleanup`. The installers stage and SHA-256 verify the complete release before publishing the manifest, and the skill refuses to run if any existing runtime command/skill pair differs from that verified payload.
+The command delegates to an `agentic-cleanup` skill installed under each selected runtime's `skills/agentic-cleanup/SKILL.md`. The full workflow, helpers, contracts, and release manifest also live under `${XDG_DATA_HOME:-~/.local/share}/agentic-cleanup`. The installers stage and SHA-256 verify the complete release before publishing the manifest, and the skill verifies the active runtime's command/skill pair against that payload without inspecting another runtime.
 
 Install for only one runtime by setting `AGENTIC_CLEANUP_RUNTIME` to `claude` or `opencode` (`all` is the default):
 
@@ -35,7 +35,7 @@ irm https://raw.githubusercontent.com/zhiganov/agentic-cleanup/master/install.ps
 Remove-Item Env:AGENTIC_CLEANUP_RUNTIME
 ```
 
-A single-runtime upgrade refuses to continue if the other runtime already has a different or incomplete `/cleanup` command/skill pair. Use the default `all` mode to upgrade both copies, or remove the stale unselected pair first.
+A single-runtime install or upgrade reads and writes only that runtime's command/skill pair. Use `all` only when you explicitly want both runtimes updated.
 
 ## Usage
 

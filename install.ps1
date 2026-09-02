@@ -56,32 +56,13 @@ try {
     $DataDir, "$DataDir\cleanup.md", "$DataDir\install-manifest.sha256", "$DataDir\installed-runtimes",
     "$DataDir\skills", "$DataDir\skills\agentic-cleanup", "$DataDir\skills\agentic-cleanup\SKILL.md",
     "$DataDir\scripts", "$DataDir\scripts\windows", "$DataDir\scripts\windows\cleanup",
-    "$DataDir\scripts\cleanup", "$DataDir\scripts\cleanup\schemas", "$DataDir\scripts\cleanup\policies",
-    $claudeCommand, $claudeSkill, $openCodeCommand, $openCodeSkill
+    "$DataDir\scripts\cleanup", "$DataDir\scripts\cleanup\schemas", "$DataDir\scripts\cleanup\policies"
   )
   if ($installClaude) { $protectedTargets += @($ClaudeDir, (Split-Path -Parent $claudeCommand), (Split-Path -Parent (Split-Path -Parent $claudeSkill)), (Split-Path -Parent $claudeSkill)) }
   if ($installOpenCode) { $protectedTargets += @($OpenCodeDir, (Split-Path -Parent $openCodeCommand), (Split-Path -Parent (Split-Path -Parent $openCodeSkill)), (Split-Path -Parent $openCodeSkill)) }
   foreach ($target in $protectedTargets) {
     if ((Test-Path -LiteralPath $target) -and ((Get-Item -LiteralPath $target -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
       throw "Refusing to overwrite cleanup install reparse point: $target"
-    }
-  }
-
-  $stagedCommandHash = (Get-FileHash -LiteralPath "$stage\cleanup.md" -Algorithm SHA256).Hash
-  $stagedSkillHash = (Get-FileHash -LiteralPath "$stage\skills\agentic-cleanup\SKILL.md" -Algorithm SHA256).Hash
-  foreach ($unselectedRuntime in @(
-    [pscustomobject]@{ Selected = $installClaude; Command = $claudeCommand; Skill = $claudeSkill; Runtime = 'Claude Code' },
-    [pscustomobject]@{ Selected = $installOpenCode; Command = $openCodeCommand; Skill = $openCodeSkill; Runtime = 'OpenCode' }
-  )) {
-    if (-not $unselectedRuntime.Selected -and ((Test-Path -LiteralPath $unselectedRuntime.Command) -or (Test-Path -LiteralPath $unselectedRuntime.Skill))) {
-      if (-not (Test-Path -LiteralPath $unselectedRuntime.Command -PathType Leaf) -or
-          (Get-FileHash -LiteralPath $unselectedRuntime.Command -Algorithm SHA256).Hash -ne $stagedCommandHash) {
-        throw "Refusing to leave a stale $($unselectedRuntime.Runtime) command: $($unselectedRuntime.Command). Install all runtimes or remove that command first."
-      }
-      if (-not (Test-Path -LiteralPath $unselectedRuntime.Skill -PathType Leaf) -or
-          (Get-FileHash -LiteralPath $unselectedRuntime.Skill -Algorithm SHA256).Hash -ne $stagedSkillHash) {
-        throw "Refusing to leave a stale $($unselectedRuntime.Runtime) skill: $($unselectedRuntime.Skill). Install all runtimes or remove that skill first."
-      }
     }
   }
 
