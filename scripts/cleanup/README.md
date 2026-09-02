@@ -24,7 +24,8 @@ Windows producers and executors live under `scripts/windows/cleanup/`:
   the latter stop the scan.
 - `registered_mcp.ps1` discovers static Claude Code and OpenCode V2 local MCP
   ownership without persisting commands, arguments, environment, or secrets.
-  Recognized unresolved environment placeholders fail discovery closed.
+  Recognized unresolved environment placeholders fail discovery closed; inline
+  shell command bodies are not misclassified as filesystem paths.
 - `execute-plan.ps1` dispatches only registered executors and writes a verified
   result. It never launches user-writable code through UAC; elevated operations
   require an already elevated trusted process or return `manual-required`.

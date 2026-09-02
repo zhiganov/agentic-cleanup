@@ -47,6 +47,7 @@ function Resolve-McpLaunchPath {
   if ([string]::IsNullOrWhiteSpace($Token)) { return $null }
   $value = (Expand-McpPathToken $Token $Runtime).Trim().Trim('"').Trim("'")
   if ($value -match '^--?[^=]+=(.+)$') { $value = $Matches[1] }
+  if ($value -match '[\r\n;|]' -or $value -match '(^|\s)&(\s|$)' -or $value -match '^\s*\$(?:env:)?[A-Za-z_][A-Za-z0-9_]*\s*=') { return $null }
   if ($value -match '[{}]') { return $null }
   if ([IO.Path]::IsPathFullyQualified($value)) { return [IO.Path]::GetFullPath($value) }
   if ($value -match '[\\/]' -or $value -match '\.(?:[cm]?[jt]s|py|rb|ps1|sh)$') {

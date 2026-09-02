@@ -79,6 +79,21 @@ try {
     Assert-True (@($ownership.owners).Count -eq 0) 'Relative explicit OpenCode project registration does not protect a neighboring project'
     Remove-Item -LiteralPath $openCode -Force
 
+    $openCodeWrapper = Join-Path $projectA 'opencode-wrapper.json'
+    $cloudPath = Join-Path $root 'Cloud SDK\bin'
+    $inlineScript = "`$env:Path='$($cloudPath.Replace("'", "''"));' + `$env:Path; npx -y @google-cloud/gcloud-mcp"
+    Write-Json $openCodeWrapper ([ordered]@{
+        mcp = [ordered]@{ servers = [ordered]@{
+            wrapper = [ordered]@{
+                type = 'local'
+                command = @((Join-Path $root 'PowerShell 7\pwsh.exe'), '-NoProfile', '-Command', $inlineScript)
+            }
+        } }
+    })
+    $ownership = Get-RegisteredMcpOwnership -ProjectPath $projectA -WorkspaceRoot $workspace -HomePath $root -OpenCodeConfigPath $openCodeWrapper -ClaudeConfigPath (Join-Path $root 'absent.json')
+    Assert-True ($ownership.status -eq 'complete' -and @($ownership.owners).Count -eq 0) 'OpenCode inline PowerShell command bodies are not misclassified as filesystem paths'
+    Remove-Item -LiteralPath $openCodeWrapper -Force
+
     $claudeGlobalHome = Join-Path $root 'claude-global-home'
     Write-Json (Join-Path $claudeGlobalHome '.claude.json') ([ordered]@{
         mcpServers = [ordered]@{
