@@ -50,8 +50,6 @@ resolve_root() {
 }
 root="$(resolve_root)"
 agentic_data="${AGENTIC_CLEANUP_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/agentic-cleanup}"
-claude_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-opencode_dir="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
 CLEANUP_SCRIPTS=""
 for cand in "$root/claude-config/scripts/windows/cleanup" "$root/agentic-cleanup/scripts/windows/cleanup" "$root/scripts/windows/cleanup" "$agentic_data/scripts/windows/cleanup"; do
   [ -f "$cand/wt_lookup.py" ] && CLEANUP_SCRIPTS="$cand" && break
@@ -62,7 +60,7 @@ for cand in "$root/claude-config/scripts/cleanup" "$root/agentic-cleanup/scripts
   [ -f "$cand/Cleanup.Contracts.psm1" ] && CLEANUP_CONTRACTS="$cand" && break
 done
 
-# A regular installed payload must be bound to every existing runtime command and skill pair.
+# A regular installed payload must be bound to the active runtime command and skill pair.
 # A maintainer junction resolves elsewhere and is covered by provenance below.
 installed_helpers="$agentic_data/scripts/windows/cleanup"
 if [ "$CLEANUP_SCRIPTS" = "$installed_helpers" ] && \
@@ -89,19 +87,20 @@ if [ "$CLEANUP_SCRIPTS" = "$installed_helpers" ] && \
     false
   fi || \
     { echo "STOP: installed cleanup files are mixed or corrupt; reinstall /cleanup"; exit 1; }
-  installed_runtime_count=0
-  for runtime_dir in "$claude_dir" "$opencode_dir"; do
-    command_copy="$runtime_dir/commands/cleanup.md"
-    skill_copy="$runtime_dir/skills/agentic-cleanup/SKILL.md"
-    if [ -e "$command_copy" ] || [ -L "$command_copy" ] || [ -e "$skill_copy" ] || [ -L "$skill_copy" ]; then
-      [ ! -L "$command_copy" ] && [ -f "$command_copy" ] && cmp -s "$agentic_data/cleanup.md" "$command_copy" || \
-        { echo "STOP: existing runtime command copy does not match this release: $command_copy"; exit 1; }
-      [ ! -L "$skill_copy" ] && [ -f "$skill_copy" ] && cmp -s "$agentic_data/skills/agentic-cleanup/SKILL.md" "$skill_copy" || \
-        { echo "STOP: existing runtime skill copy does not match this release: $skill_copy"; exit 1; }
-      installed_runtime_count=$((installed_runtime_count + 1))
-    fi
-  done
-  [ "$installed_runtime_count" -gt 0 ] || { echo "STOP: no installed cleanup runtime command was found; reinstall /cleanup"; exit 1; }
+  if [ "${OPENCODE_TERMINAL:-}" = "1" ]; then
+    runtime_dir="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
+  elif [ -n "${CLAUDECODE:-}" ]; then
+    runtime_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+  else
+    echo "STOP: unable to identify the active cleanup runtime; reinstall or run from OpenCode or Claude Code"
+    exit 1
+  fi
+  command_copy="$runtime_dir/commands/cleanup.md"
+  skill_copy="$runtime_dir/skills/agentic-cleanup/SKILL.md"
+  [ ! -L "$command_copy" ] && [ -f "$command_copy" ] && cmp -s "$agentic_data/cleanup.md" "$command_copy" || \
+    { echo "STOP: active runtime command copy does not match this release: $command_copy"; exit 1; }
+  [ ! -L "$skill_copy" ] && [ -f "$skill_copy" ] && cmp -s "$agentic_data/skills/agentic-cleanup/SKILL.md" "$skill_copy" || \
+    { echo "STOP: active runtime skill copy does not match this release: $skill_copy"; exit 1; }
 fi
 ```
 

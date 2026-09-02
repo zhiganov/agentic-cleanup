@@ -83,31 +83,12 @@ try {
     Assert-True ((Get-Item -LiteralPath $claudeSkill).LastWriteTimeUtc -eq $claudeSkillTimestamp) 'Same-release OpenCode-only transition does not rewrite the Claude Code skill'
 
     [IO.File]::WriteAllText($claudeCommand, 'stale-claude-command', [Text.UTF8Encoding]::new($false))
-    $payloadHashBeforeRefusal = (Get-FileHash -LiteralPath (Join-Path $dataDir 'cleanup.md')).Hash
-    try {
-        & { . $installer }
-        throw 'FAIL: PowerShell installer allowed a stale unselected Claude command'
-    } catch {
-        if ($_.Exception.Message -eq 'FAIL: PowerShell installer allowed a stale unselected Claude command') { throw }
-        Assert-True ($_.Exception.Message -like 'Refusing to leave a stale Claude Code command:*') 'OpenCode-only upgrade rejects a stale Claude command'
-    }
-    Assert-True (([IO.File]::ReadAllText($claudeCommand)) -eq 'stale-claude-command') 'Rejected upgrade does not modify the stale Claude command'
-    Assert-True ((Get-FileHash -LiteralPath (Join-Path $dataDir 'cleanup.md')).Hash -eq $payloadHashBeforeRefusal) 'Rejected upgrade does not modify the shared payload'
-
-    $env:AGENTIC_CLEANUP_RUNTIME = 'all'
-    & { . $installer }
-    $env:AGENTIC_CLEANUP_RUNTIME = 'opencode'
     [IO.File]::WriteAllText($claudeSkill, 'stale-claude-skill', [Text.UTF8Encoding]::new($false))
-    $skillPayloadHashBeforeRefusal = (Get-FileHash -LiteralPath (Join-Path $dataDir 'skills\agentic-cleanup\SKILL.md')).Hash
-    try {
-        & { . $installer }
-        throw 'FAIL: PowerShell installer allowed a stale unselected Claude skill'
-    } catch {
-        if ($_.Exception.Message -eq 'FAIL: PowerShell installer allowed a stale unselected Claude skill') { throw }
-        Assert-True ($_.Exception.Message -like 'Refusing to leave a stale Claude Code skill:*') 'OpenCode-only upgrade rejects a stale Claude skill'
-    }
-    Assert-True (([IO.File]::ReadAllText($claudeSkill)) -eq 'stale-claude-skill') 'Rejected upgrade does not modify the stale Claude skill'
-    Assert-True ((Get-FileHash -LiteralPath (Join-Path $dataDir 'skills\agentic-cleanup\SKILL.md')).Hash -eq $skillPayloadHashBeforeRefusal) 'Rejected upgrade does not modify the shared skill payload'
+    & { . $installer }
+    Assert-True (([IO.File]::ReadAllText($claudeCommand)) -eq 'stale-claude-command') 'OpenCode-only upgrade does not inspect or modify a stale Claude command'
+    Assert-True (([IO.File]::ReadAllText($claudeSkill)) -eq 'stale-claude-skill') 'OpenCode-only upgrade does not inspect or modify a stale Claude skill'
+    Assert-True ((Get-FileHash -LiteralPath $openCodeCommand).Hash -eq (Get-FileHash -LiteralPath (Join-Path $dataDir 'cleanup.md')).Hash) 'OpenCode-only upgrade keeps the selected command bound to the shared payload'
+    Assert-True ((Get-FileHash -LiteralPath $openCodeSkill).Hash -eq (Get-FileHash -LiteralPath (Join-Path $dataDir 'skills\agentic-cleanup\SKILL.md')).Hash) 'OpenCode-only upgrade keeps the selected skill bound to the shared payload'
 
     $openCodeOnlyRoot = Join-Path $testRoot 'opencode-only'
     $env:CLAUDE_CONFIG_DIR = Join-Path $openCodeOnlyRoot 'claude'
@@ -167,26 +148,42 @@ try {
     $guardScript = Join-Path $bashRoot 'verify.sh'
     [IO.File]::WriteAllText($guardScript, ($preambleMatch.Groups[1].Value.Replace("`r`n", "`n").Replace("`r", "`n") + "`n"), [Text.UTF8Encoding]::new($false))
     [IO.Directory]::CreateDirectory((Join-Path $bashRoot 'work')) | Out-Null
-    $guardCommand = "cd '$bashPath/work' && CLAUDE_CONFIG_DIR='$bashPath/claude' XDG_CONFIG_HOME='$bashPath/config' XDG_DATA_HOME='$bashPath/data' '$bashPath/verify.sh'"
-    $bashResult = Invoke-GitBash $gitBash $guardCommand
-    if ($bashResult.ExitCode -ne 0) { throw "FAIL: Installed command integrity preamble exited $($bashResult.ExitCode): $($bashResult.Stderr)" }
+    $guardEnvironment = "CLAUDE_CONFIG_DIR='$bashPath/claude' XDG_CONFIG_HOME='$bashPath/config' XDG_DATA_HOME='$bashPath/data'"
+    $openCodeGuard = "cd '$bashPath/work' && env -u CLAUDECODE OPENCODE_TERMINAL=1 $guardEnvironment '$bashPath/verify.sh'"
+    $claudeGuard = "cd '$bashPath/work' && env -u OPENCODE_TERMINAL CLAUDECODE=1 $guardEnvironment '$bashPath/verify.sh'"
+    $unknownGuard = "cd '$bashPath/work' && env -u OPENCODE_TERMINAL -u CLAUDECODE $guardEnvironment '$bashPath/verify.sh'"
+    $bashResult = Invoke-GitBash $gitBash $openCodeGuard
+    if ($bashResult.ExitCode -ne 0) { throw "FAIL: Installed OpenCode integrity preamble exited $($bashResult.ExitCode): $($bashResult.Stderr)" }
+    $bashResult = Invoke-GitBash $gitBash $claudeGuard
+    if ($bashResult.ExitCode -ne 0) { throw "FAIL: Installed Claude Code integrity preamble exited $($bashResult.ExitCode): $($bashResult.Stderr)" }
+    $bashResult = Invoke-GitBash $gitBash $unknownGuard
+    Assert-True ($bashResult.ExitCode -ne 0) 'Installed integrity preamble fails closed when the active runtime is unknown'
+
     [IO.File]::WriteAllText($bashClaudeCommand, 'stale-claude-command', [Text.UTF8Encoding]::new($false))
-    $bashPayloadHash = (Get-FileHash -LiteralPath $bashDataPayload).Hash
-    $bashResult = Invoke-GitBash $gitBash $guardCommand
-    Assert-True ($bashResult.ExitCode -ne 0) 'Installed command rejects any stale existing runtime copy'
+    [IO.File]::WriteAllText($bashClaudeSkill, 'stale-claude-skill', [Text.UTF8Encoding]::new($false))
+    $bashResult = Invoke-GitBash $gitBash $openCodeGuard
+    if ($bashResult.ExitCode -ne 0) { throw "FAIL: OpenCode integrity preamble inspected stale Claude files: $($bashResult.Stderr)" }
+    $bashResult = Invoke-GitBash $gitBash $claudeGuard
+    Assert-True ($bashResult.ExitCode -ne 0) 'Claude Code integrity rejects its stale active runtime pair'
     $bashResult = Invoke-GitBash $gitBash "$bashEnvironment AGENTIC_CLEANUP_RUNTIME=opencode '$bashPath/install.sh'"
-    Assert-True ($bashResult.ExitCode -ne 0) 'Git Bash OpenCode-only upgrade rejects a stale Claude command'
-    Assert-True ((Get-FileHash -LiteralPath $bashDataPayload).Hash -eq $bashPayloadHash) 'Rejected Git Bash upgrade does not modify the shared payload'
+    if ($bashResult.ExitCode -ne 0) { throw "FAIL: Git Bash OpenCode-only upgrade inspected stale Claude files: $($bashResult.Stderr)" }
+    Assert-True (([IO.File]::ReadAllText($bashClaudeCommand)) -eq 'stale-claude-command') 'Git Bash OpenCode-only upgrade leaves a stale Claude command untouched'
+    Assert-True (([IO.File]::ReadAllText($bashClaudeSkill)) -eq 'stale-claude-skill') 'Git Bash OpenCode-only upgrade leaves a stale Claude skill untouched'
+    Assert-True ((Get-FileHash -LiteralPath $bashOpenCodeCommand).Hash -eq (Get-FileHash -LiteralPath $bashDataPayload).Hash) 'Git Bash OpenCode-only upgrade binds the selected command to the shared payload'
+    Assert-True ((Get-FileHash -LiteralPath $bashOpenCodeSkill).Hash -eq (Get-FileHash -LiteralPath $bashDataSkill).Hash) 'Git Bash OpenCode-only upgrade binds the selected skill to the shared payload'
 
     $bashResult = Invoke-GitBash $gitBash "$bashEnvironment AGENTIC_CLEANUP_RUNTIME=all '$bashPath/install.sh'"
-    if ($bashResult.ExitCode -ne 0) { throw "FAIL: Git Bash reinstall before skill-staleness test exited $($bashResult.ExitCode): $($bashResult.Stderr)" }
-    [IO.File]::WriteAllText($bashClaudeSkill, 'stale-claude-skill', [Text.UTF8Encoding]::new($false))
-    $bashSkillHash = (Get-FileHash -LiteralPath $bashDataSkill).Hash
-    $bashResult = Invoke-GitBash $gitBash $guardCommand
-    Assert-True ($bashResult.ExitCode -ne 0) 'Installed skill rejects any stale existing runtime skill copy'
+    if ($bashResult.ExitCode -ne 0) { throw "FAIL: Git Bash reinstall before active-runtime staleness tests exited $($bashResult.ExitCode): $($bashResult.Stderr)" }
+    [IO.File]::WriteAllText($bashOpenCodeCommand, 'stale-opencode-command', [Text.UTF8Encoding]::new($false))
+    $bashResult = Invoke-GitBash $gitBash $openCodeGuard
+    Assert-True ($bashResult.ExitCode -ne 0) 'OpenCode integrity rejects its stale active command'
+    $bashResult = Invoke-GitBash $gitBash $claudeGuard
+    if ($bashResult.ExitCode -ne 0) { throw "FAIL: Claude Code integrity preamble inspected a stale OpenCode command: $($bashResult.Stderr)" }
     $bashResult = Invoke-GitBash $gitBash "$bashEnvironment AGENTIC_CLEANUP_RUNTIME=opencode '$bashPath/install.sh'"
-    Assert-True ($bashResult.ExitCode -ne 0) 'Git Bash OpenCode-only upgrade rejects a stale Claude skill'
-    Assert-True ((Get-FileHash -LiteralPath $bashDataSkill).Hash -eq $bashSkillHash) 'Rejected Git Bash upgrade does not modify the shared skill payload'
+    if ($bashResult.ExitCode -ne 0) { throw "FAIL: Git Bash OpenCode-only upgrade did not repair its selected command: $($bashResult.Stderr)" }
+    [IO.File]::WriteAllText($bashOpenCodeSkill, 'stale-opencode-skill', [Text.UTF8Encoding]::new($false))
+    $bashResult = Invoke-GitBash $gitBash $openCodeGuard
+    Assert-True ($bashResult.ExitCode -ne 0) 'OpenCode integrity rejects its stale active skill'
 
     $env:AGENTIC_CLEANUP_RUNTIME = 'invalid'
     try {
