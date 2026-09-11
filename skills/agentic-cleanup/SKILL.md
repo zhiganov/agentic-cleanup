@@ -7,13 +7,31 @@ description: Scan a developer workstation for reclaimable disk space, report cat
 
 Scan the workstation for reclaimable disk space, report findings in a categorized table, let the user select which categories to clean, and execute the cleanup.
 
+## Governing discovery principle
+
+Discovery is evidence-first, not category-limited. Start with whole-drive or
+whole-filesystem top consumers and unexpected outliers, then apply the curated
+categories as safety policies and known cleanup mechanisms. Fixed categories
+must never define the boundary of what the scan can discover.
+
+Every material outlier must be classified as confirmed reclaimable,
+reclaimable after closing an application, requiring human review,
+system-managed/protected, or a live dependency. Unknown paths are evidence, not
+deletion targets. Broad runtime exclusions are deletion boundaries rather than
+visibility boundaries: inspect descendants read-only for abandoned worktrees,
+build outputs, caches, and task artifacts while preserving anything live.
+
+**Never suggest deleting `hiberfil.sys` or disabling hibernation.** Suppress it
+from outlier output and treat it as protected system functionality in every
+scan, report, and cleanup plan.
+
 ## Platform coverage
 
 The skill detects the OS at runtime and only scans categories that apply. Coverage status as of the latest revision:
 
 | Platform | Status | Notes |
 |----------|--------|-------|
-| Windows (MSYS2/Git Bash) | **Validated** | Original development target; ~13 Windows-only categories including elevated cleanup, WizTree fast-scan integration, AppData remnants, VS / SDK orphans, Electron app caches, Squirrel pruning. |
+| Windows (MSYS2/Git Bash) | **Validated** | Original development target; 12 Windows-only categories plus the cross-platform set, including elevated cleanup, WizTree fast-scan integration, AppData remnants, VS / SDK orphans, Electron app caches, and Squirrel pruning. |
 | Linux — Fedora (dnf/rpm) | **Validated** | Tested on Fedora 44 with the orphan scan's 4-layer filter chain (allowlist + active-binary + 30-day mtime + token-boundary package match). |
 | Linux — Debian/Ubuntu (apt) | Written, **not exercised** | Detection and clean commands are present but haven't been run against a real Debian system. Pull requests with confirmation welcome. |
 | Linux — Arch (pacman), openSUSE (zypper) | Written, **not exercised** | Same as Debian — logic exists, untested. |
@@ -70,7 +88,7 @@ if [ "$CLEANUP_SCRIPTS" = "$installed_helpers" ] && \
   manifest_paths=(
     cleanup.md
     skills/agentic-cleanup/SKILL.md
-    scripts/windows/cleanup/{wt_lookup.py,find_targets.py,assert_list.py,live_paths.ps1,registered_mcp.ps1,diskspace.ps1,run_wiztree.ps1,squirrel.ps1,appdata_orphans.ps1,winsdk.ps1,vs_orphans.ps1,scrub.ps1,scan.ps1,execute-plan.ps1,README.md}
+    scripts/windows/cleanup/{wt_lookup.py,find_targets.py,find_outliers.py,assert_list.py,live_paths.ps1,registered_mcp.ps1,diskspace.ps1,run_wiztree.ps1,squirrel.ps1,appdata_orphans.ps1,winsdk.ps1,vs_orphans.ps1,scrub.ps1,scan.ps1,execute-plan.ps1,README.md}
     scripts/cleanup/{Cleanup.Contracts.psm1,build-plan.ps1,validate-plan.ps1,render-scan.ps1,README.md,schemas/scan.schema.json,schemas/plan.schema.json,schemas/result.schema.json,policies/windows.v1.json}
   )
   [ "$(wc -l < "$manifest" | tr -d ' ')" -eq "${#manifest_paths[@]}" ] || \
@@ -142,6 +160,7 @@ fi
 |--------|---------|
 | `wt_lookup.py <csv>` | Size lookup — pipe Windows paths on stdin → `sizeMB\|path` |
 | `find_targets.py <csv> <workspace_root>` | Top-level `node_modules` (≥10 MB) + `.next`/`.turbo`/`.parcel-cache`/`.vite` dirs under the workspace |
+| `find_outliers.py <csv> [--minimum-mb 100]` | Read-only, non-overlapping whole-drive hotspots; suppresses `hiberfil.sys` |
 | `diskspace.ps1 [drive]` | `free total pct` in GB (default = system drive) |
 | `run_wiztree.ps1 -WizTree <exe> -OutCsv <winpath>` | Elevated WizTree MFT export (one UAC) |
 | `squirrel.ps1` | Discover Squirrel old `app-*` versions |
@@ -281,6 +300,20 @@ find "${OPENCODE_WORKSPACE_ROOT:-$PWD}/agentic-cleanup" -maxdepth 1 -name "WizTr
 
 If a CSV is found (either exported or pre-existing), use the committed `wt_lookup.py` (see *Helper scripts*) for instant size lookups — it reads the CSV path from `argv[1]` and query paths from stdin. Test it: pipe a known path and confirm a non-zero size.
 
+**Whole-drive outlier discovery is mandatory when a CSV is available.** Run the
+committed finder once and retain its output for the classification pass after
+the category scans:
+
+```bash
+python "$CLEANUP_SCRIPTS/find_outliers.py" /tmp/agentic-cleanup/wiztree.csv \
+  --minimum-mb 100 --limit 100 > /tmp/agentic-cleanup/outliers.txt
+```
+
+The helper emits non-overlapping large-path hotspots sorted by size. Its output
+is read-only evidence and must never be used as a deletion list. It suppresses
+`hiberfil.sys` at source. Do not re-add that file by manually inspecting or
+sorting the raw CSV.
+
 **Using WizTree data in categories:** When WizTree data is available, replace all PowerShell `Get-ChildItem -Recurse` size measurements with:
 
 ```bash
@@ -305,6 +338,15 @@ printf '%s\n' \
 ```
 
 **If neither WizTree nor a CSV is available**, fall back to the PowerShell approach described in each category below (marked as "Fallback:").
+
+Also approximate the outlier pass with scoped top-consumer scans. Do not launch
+an unbounded recursive whole-drive walk: inspect the largest immediate children
+of the user profile, workspace, `%LOCALAPPDATA%`, `%APPDATA%`, and `%TEMP%`, then
+drill into material branches until the source is recognizable. On macOS/Linux,
+apply the same bounded drill-down with `du -x -d 1` (or `du -x --max-depth=1`)
+starting from `/`, the home directory, the workspace, and the platform cache
+roots. Record that this is a scoped approximation rather than a complete
+indexed-drive census.
 
 ### Step 3: Scan All Categories
 
@@ -359,10 +401,15 @@ Collect: project name, size, full path.
 
 **npm:**
 - Check: `command -v npm`
-- Path: **Windows:** `~/AppData/Local/npm-cache`, **macOS/Linux:** `~/.npm/_cacache`
-- **With WizTree:** Pipe path to `wt_lookup.py`
+- Cache root: **Windows:** `~/AppData/Local/npm-cache`, **macOS/Linux:** `~/.npm`
+- Measure `_cacache` separately from `_npx`. `npm cache clean --force` is the maintained cleanup for `_cacache` and must remain the default.
+- Inspect each immediate child of `_npx` as a separate candidate. Include only entries whose newest descendant write is older than 7 days. An empty entry uses the directory's own timestamp.
+- **Before reporting and again immediately before deletion, apply the live-path veto to each exact `_npx` child.** On Windows use `live_paths.ps1` plus `assert_list.py --live`; on macOS/Linux inspect process command lines/open files. Any entry containing code used by a running process is protected. Never delete `_npx` itself or pass the npm cache root to `scrub.ps1`.
+- Stale `_npx` entries are regenerable: a future `npx` invocation downloads them again. Report their count and size separately so the user sees the redownload consequence.
+- Reclaimable npm bytes are `_cacache` plus eligible stale `_npx` children only. Treat every other `_npx` byte as protected and exclude it from the category total.
+- **With WizTree:** Pipe `_cacache` and the eligible exact `_npx` child paths to `wt_lookup.py`.
 - **Fallback:** PowerShell or `du -sm`
-- Clean command: `npm cache clean --force`
+- Clean commands: `npm cache clean --force` for `_cacache`; remove only the individually validated stale `_npx` child directories selected in the category.
 
 **pnpm:**
 - Check: `command -v pnpm`
@@ -395,7 +442,7 @@ Collect: cache size.
 
 **All platforms.**
 
-Measure sizes of these directories (they are always safe to delete):
+Measure sizes of these generated-data directories:
 - `~/.claude/debug/`
 - `~/.claude/file-history/`
 - `~/.claude/telemetry/`
@@ -406,6 +453,21 @@ Count and measure old session logs:
 - **macOS/Linux:** `find ~/.claude/projects -maxdepth 2 -name "*.jsonl" -mtime +28`
 - **Windows:** PowerShell to find `.jsonl` files under `~/.claude/projects/*/` with LastWriteTime older than 28 days
 
+Also scan these bounded Claude-generated targets:
+
+- **MCP diagnostic logs:** Windows
+  `%LOCALAPPDATA%\claude-cli-nodejs\Cache\*\mcp-logs-*`; macOS/Linux
+  `~/.cache/claude-cli-nodejs/*/mcp-logs-*`. Match only directories whose basename
+  starts with `mcp-logs-`; never offer the workspace cache parent. Include only
+  logs whose newest write is older than 24 hours, and reapply the live-path veto
+  before deletion. These contain diagnostics, not conversations or settings.
+- **Superseded Claude binaries:** `~/.local/share/claude/versions/<semver>`.
+  Resolve the running version with `claude --version` and require an exact
+  matching version directory. Keep that exact directory and also keep the newest
+  installed version. If the command is missing, parsing fails, or no directory
+  matches, skip this target entirely. Apply the live-path veto to each older
+  directory before reporting and immediately before deletion.
+
 **SAFETY — NEVER touch any of the following:**
 - `~/.claude/projects/*/memory/` (persistent memories)
 - `~/.claude/commands/` (slash commands)
@@ -413,7 +475,56 @@ Count and measure old session logs:
 - `~/.claude/settings*.json` (settings)
 - `~/.claude/history.jsonl` (conversation history)
 
-Collect: breakdown (debug X MB, file-history Y MB, telemetry Z MB, N old sessions W MB), total size.
+Collect: breakdown (debug X MB, file-history Y MB, telemetry Z MB, N old
+sessions W MB, MCP diagnostics M MB, superseded versions V MB), total size.
+
+---
+
+#### Category: Downloaded Model Caches
+
+**All platforms.** Probe the Hugging Face cache at `~/.cache/huggingface`.
+Include it only when it exists and is at least 100 MB.
+
+This is downloaded model data, not user-authored model output. Deleting it means
+the model must be downloaded again before the dependent application can run.
+Before reporting and again before deletion, skip the cache if any running
+process has an executable, command line, or open path beneath it, or explicitly
+references Hugging Face, Transformers, faster-whisper, or a model stored there.
+On Windows, use `live_paths.ps1` and `assert_list.py --live` for the path veto;
+the process-name/command-line check is an additional guard, not a substitute.
+Restrict keyword inspection to plausible model hosts such as
+`python`/`pythonw`, `node`, `bun`, `uv`, or a known model application, and
+exclude the probe's own process and launcher ancestors. Never search every
+process command line for the keywords: the scanner command itself contains them
+and otherwise self-matches as a fake live model.
+
+Measure with WizTree or the platform fallback. Clean only the cache directory's
+contents; never broaden the target to `~/.cache`.
+
+Collect: total size and exact path.
+
+---
+
+#### Category: Browser Automation Downloads
+
+**All platforms.** Browser-test tools download full browser distributions that
+are regenerated on demand. Probe these exact roots:
+
+| Tool | Windows | macOS | Linux |
+|------|---------|-------|-------|
+| Playwright | `%LOCALAPPDATA%\ms-playwright` | `~/Library/Caches/ms-playwright` | `~/.cache/ms-playwright` |
+| Puppeteer | `~/.cache/puppeteer` | `~/.cache/puppeteer` | `~/.cache/puppeteer` |
+
+Measure each root and list its immediate browser/version children. Skip a tool
+under 50 MB. Before reporting and again before deletion, apply the live-path
+veto to the exact tool root; if a test runner or browser executable is using a
+descendant, protect the entire root. Deletion means Playwright or Puppeteer will
+download the required browser again on next use.
+
+Clean only the selected tool root's contents. Never infer sibling cache roots
+from the parent directory.
+
+Collect: tool, total size, browser/version children, and exact path.
 
 ---
 
@@ -608,6 +719,12 @@ Electron apps store caches in `%APPDATA%/<AppName>/` and `%LOCALAPPDATA%/<AppNam
 
 For each installed app, discover cache subdirectories (PowerShell `Get-ChildItem -Directory -Filter <cacheName> -Recurse -Depth 2`), then measure sizes:
 
+Zoom is a named exception to the generic Electron cache names: probe
+`%APPDATA%\Zoom\data\WebviewCacheX64` directly and include only its contents.
+Never broaden this target to `%APPDATA%\Zoom\data` or the Zoom profile root.
+If any Zoom process is running, classify this item as close-application-first
+and do not clean it until a refreshed process check confirms Zoom is closed.
+
 - **With WizTree:** Pipe all discovered cache paths to `wt_lookup.py`
 - **Fallback:** PowerShell `Get-ChildItem -Recurse`
 
@@ -642,24 +759,6 @@ Skip if total < 20 MB.
 Clean command (Step 6): `rm -rf <each path>/*` for directories, or `rm -f <path>` for individual .nupkg files.
 
 Collect: app names, sizes, paths.
-
----
-
-#### Category: Playwright Browsers (Windows only)
-
-**Skip if platform is not windows.**
-
-Playwright downloads full browser binaries to `%LOCALAPPDATA%\ms-playwright\`. These can be large (200-400 MB each) and accumulate when Playwright updates.
-
-Measure size (WizTree or fallback PowerShell). List subdirectories (browser versions).
-
-Skip if total < 50 MB.
-
-**Note:** Deleting Playwright browsers means they'll need to be re-downloaded on next `npx playwright install`. Only clean if you're not actively running Playwright tests.
-
-Clean command (Step 6): `rm -rf <ms-playwright path>/*`
-
-Collect: total size, browser list, path.
 
 ---
 
@@ -1122,6 +1221,31 @@ Collect: browser names, total size per browser, paths.
 
 Assemble the scan results into a report table.
 
+Before rendering, classify every material hotspot from the whole-drive or
+scoped outlier pass:
+
+- **Covered:** already represented by a curated category. Do not duplicate it;
+  verify that the category's measured size and scope explain the hotspot.
+- **Confirmed reclaimable:** regenerable data with a known owner and a deletion
+  scope protected by the same liveness, ownership, freshness, and path gates as
+  the nearest curated category.
+- **Close application first:** regenerable cache whose owning application is
+  running or may hold locks.
+- **Human review:** user content, an unfamiliar path, uncertain ownership, or
+  anything whose consequence cannot be proved from current evidence.
+- **System-managed/protected:** operating-system/update data, package caches
+  needed for repair, recovery state, or another protected control surface.
+- **Live dependency:** any path used by a running process, active worktree,
+  registered local MCP server, current runtime, or in-flight task.
+
+Unexpected outliers classified as confirmed reclaimable or close-application
+first may appear in a separate **Expanded audit** table with letter IDs. State
+the exact path, evidence, consequence, and estimated size. They require explicit
+per-item selection (for example, `audit A,C`) and must not be included in `all`.
+Human-review, protected, and live items are informational only and never enter a
+deletion list. `$WinREAgent` is protected while an update or rollback is pending.
+Never show `hiberfil.sys` as an opportunity, tradeoff, or optional candidate.
+
 **Only include categories that found reclaimable items** (total size > 0). Skip empty categories entirely.
 
 Sort rows by size descending. Number them sequentially (1, 2, 3...) based on what's shown — these are NOT fixed category IDs.
@@ -1153,6 +1277,9 @@ Wait for user response. Parse their selection:
 - Specific numbers: clean only those categories
 - `all`: clean everything in the report
 - `none`: cancel, do not delete anything
+
+`all` covers only the numbered curated-category table. Expanded-audit letters
+must be named explicitly after the user has seen their evidence and consequence.
 
 ### Step 6: Execute Cleanup
 
@@ -1205,9 +1332,9 @@ It does **not** subsume `find_targets.py`'s `backs_mcp_server()`. A book-power M
 
 *Why a committed script and not an inline check* (2026-07-16): the run **did** verify, and the verification was broken **the same way as the bug**. `grep -v '\Claude\'` silently appended nothing, so the entire Electron category — 42 dirs, ~1.4 GB, the largest selection — vanished from the delete list while `wc -l` reported a healthy 197 lines. The check `grep -c 'AppData\Roaming' "$LIST"` then died on the identical trailing backslash and printed `0` next to a "must be 0" row for a *different* category, so the wrong answer read as a passing test. A check that fails identically to the thing it checks is worse than no check. `assert_list.py` matches fixed-string off argv, in code, and is regression-tested against that exact 197-line list.
 
-**NEVER pass `npm-cache` to `scrub.ps1`.** `%LOCALAPPDATA%\npm-cache\_npx\` is where `npx -y <pkg>` materialises packages, and **live MCP servers execute from inside it** — on a machine running Claude Code you will typically find `node …\npm-cache\_npx\…\harmonica-mcp\dist\index.js` (and context7, shadcn, etc.) in the process list, once per running session. A whole-directory `rmdir /s /q` deletes those servers' code out from under every running session. Use **`npm cache clean --force`** (Step 6 table) — it prunes `_cacache` and leaves `_npx` intact. It is slower, and that is the price. Observed 2026-07-16: `scrub.ps1` on npm-cache returned `FAIL: Access to the path is denied` **because** two sessions' MCP servers held it open; the lock was the only thing preventing the damage. Do not "fix" that failure by retrying harder or killing the holder. This is the same failure class as the live-MCP-server rule in the node_modules category — `_npx` is its `%LOCALAPPDATA%` twin. If you must hand-roll a delete script instead, write it with the Write tool (not a shell heredoc) so its delete commands never hit the hook, and never name the worker function `Del`/`RD`/`RM`.
+**NEVER pass `npm-cache` or `_npx` itself to `scrub.ps1`.** `%LOCALAPPDATA%\npm-cache\_npx\` is where `npx -y <pkg>` materialises packages, and **live MCP servers execute from inside it** — on a machine running Claude Code you will typically find `node …\npm-cache\_npx\…\harmonica-mcp\dist\index.js` (and context7, shadcn, etc.) in the process list, once per running session. A whole-directory `rmdir /s /q` deletes those servers' code out from under every running session. Use **`npm cache clean --force`** for `_cacache`. The only supported `_npx` removal is an individually listed immediate child that passed the 7-day age test and a refreshed live-path veto. Validate that every target's canonical parent is exactly `_npx`, then run `assert_list.py --require '\_npx\' --live <fresh-live-paths>` before `scrub.ps1`. Observed 2026-07-16: scrub on the cache root returned `Access is denied` **because** two sessions held it; the lock was the only thing preventing the damage. Do not "fix" that failure by retrying harder or killing the holder. If you must hand-roll a delete script instead, write it with the Write tool (not a shell heredoc) so its delete commands never hit the hook, and never name the worker function `Del`/`RD`/`RM`.
 
-**Alias trap (Windows/PowerShell):** `del`, `rd`, and `rm` are aliases for `Remove-Item`, and aliases outrank functions in command resolution. Never name a delete-helper function `Del` / `RD` / `RM` — the alias shadows it, the function body (delete + logging) silently never runs, and it looks like it "succeeded" (sub-second, no freed space, missing log lines). Use a non-aliased name such as `Scrub`. Inside the `.ps1`, `cmd /c rmdir /s /q "<path>"` is fastest for whole-dir removal (e.g. a superseded Squirrel `app-*` version, or an inactive project's `node_modules`); use `Remove-Item "<dir>\*" -Recurse -Force` for contents-only where the dir must survive (e.g. `C:\Windows\Temp`). **Do not reach for the fast whole-dir form on `npm-cache`** — see the `_npx` warning above; that directory hosts running MCP servers and must go through `npm cache clean --force` instead.
+**Alias trap (Windows/PowerShell):** `del`, `rd`, and `rm` are aliases for `Remove-Item`, and aliases outrank functions in command resolution. Never name a delete-helper function `Del` / `RD` / `RM` — the alias shadows it, the function body (delete + logging) silently never runs, and it looks like it "succeeded" (sub-second, no freed space, missing log lines). Use a non-aliased name such as `Scrub`. Inside the `.ps1`, `cmd /c rmdir /s /q "<path>"` is fastest for whole-dir removal (e.g. a superseded Squirrel `app-*` version, an individually validated stale `_npx` child, or an inactive project's `node_modules`); use `Remove-Item "<dir>\*" -Recurse -Force` for contents-only where the dir must survive (e.g. `C:\Windows\Temp`). **Do not reach for the fast whole-dir form on `npm-cache` or `_npx` itself** — see the warning above.
 
 **Elevated cleanup (Windows):** Several categories require admin privileges. When the user selects any elevated category, batch all elevated operations into a single PowerShell script and run it with `Start-Process -Verb RunAs` (triggers one UAC prompt instead of many):
 
@@ -1226,12 +1353,14 @@ powershell.exe -Command "Start-Process powershell.exe -ArgumentList '-File','<wi
 |----------|--------------|
 | Squirrel old versions | `rm -rf <each old app-* directory path>` |
 | node_modules (inactive) | `rm -rf <each inactive project>/node_modules` |
-| npm cache | `npm cache clean --force` |
+| npm cache | `npm cache clean --force` for `_cacache`; `scrub.ps1`/`find -delete` only for exact stale `_npx` children after age, canonical-parent, and refreshed liveness validation |
 | pnpm cache | `pnpm store prune` |
 | yarn v1 cache | `yarn cache clean` |
 | yarn v2+ cache | `yarn cache clean --all` |
 | pip cache | `pip cache purge` (or `pip3 cache purge`) |
-| Claude Code debris | `rm -rf ~/.claude/debug/* ~/.claude/file-history/* ~/.claude/telemetry/*` and delete old `.jsonl` files: macOS/Linux `find ~/.claude/projects -maxdepth 2 -name "*.jsonl" -mtime +28 -delete`, Windows use PowerShell equivalent |
+| Claude Code debris | Clear `debug`/`file-history`/`telemetry`, delete selected old `.jsonl`, exact stale `mcp-logs-*` directories, and superseded version directories; preserve memories/settings/history plus the running and newest Claude versions |
+| Downloaded model caches | Clear only `~/.cache/huggingface` after model-process and live-path vetoes; dependent models re-download |
+| Browser automation downloads | Clear only selected `ms-playwright` or `~/.cache/puppeteer` contents after the live-path veto; browsers re-download |
 | Crash dumps | `rm -rf <CrashDumps path>/*`. LiveKernelReports: **elevated** `Remove-Item "C:\Windows\LiveKernelReports\*" -Recurse -Force` |
 | Build artifacts | `rm -rf <each artifact directory path>` |
 | Docker (images) | `docker image prune -f` |
@@ -1241,9 +1370,8 @@ powershell.exe -Command "Start-Process powershell.exe -ArgumentList '-File','<wi
 | Delivery Optimization | **Elevated:** `Stop-Service DoSvc -Force; Remove-Item ...\Cache\* -Recurse -Force; Start-Service DoSvc`. If access denied, instruct user to use Settings > Storage > Temporary files. |
 | Windows Temp files | **Elevated for system temp.** User temp: PowerShell `Get-ChildItem "$env:TEMP" | Where-Object { $_.Name -notin @('agentic-cleanup','claude-cleanup','claude','opencode') } | Remove-Item -Recurse -Force` — all four exclusions are required; `claude` and `opencode` are live runtime scratch directories, and deleting either can kill the running command. System temp: **elevated** `Remove-Item "$env:SystemRoot\Temp\*" -Recurse -Force` |
 | Browser caches | `rm -rf <each cache directory path>/*` (contents only). Warn user to close browsers first. |
-| Electron app caches | `rm -rf <each cache directory path>/*` (contents only). Warn user to close affected apps first. |
+| Electron app caches | `rm -rf <each cache directory path>/*` (contents only), including exact Zoom `data\WebviewCacheX64` contents. Warn user to close affected apps first. |
 | Stale updater files | `rm -rf <each updater directory path>/*` for directories, `rm -f <path>` for individual .nupkg files. |
-| Playwright browsers | `rm -rf <ms-playwright path>/*` |
 | AppData remnants | `rm -rf <each confirmed orphan path>` — **requires per-item user confirmation** before deleting. |
 | Windows SDK old versions | **Elevated:** Remove old version dirs from `Lib\`, `Include\`, `bin\` under Windows Kits. Keep newest version. |
 | Orphaned VS installations | **Elevated:** `Remove-Item "<path>" -Recurse -Force` for each orphaned VS directory. |

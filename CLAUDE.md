@@ -4,7 +4,7 @@ This file provides guidance to coding agents working in this repository.
 
 ## Overview
 
-Published `/cleanup` command and `agentic-cleanup` skill for Claude Code and OpenCode V2. It scans a developer workstation for reclaimable disk space across 31 categories and lets users selectively clean them. Cross-platform: Windows, macOS, Linux. Uses WizTree for instant NTFS scanning on Windows when available.
+Published `/cleanup` command and `agentic-cleanup` skill for Claude Code and OpenCode V2. It scans a developer workstation for reclaimable disk space across 32 categories and lets users selectively clean them. Cross-platform: Windows, macOS, Linux. Uses WizTree for instant NTFS scanning on Windows when available.
 
 Repo: `zhiganov/agentic-cleanup`. Tagline: "Safe disk cleanup for coding agents."
 
@@ -28,7 +28,7 @@ The skill instructs the active coding agent through 7 steps:
 1. Detect platform (`uname -s`) and measure disk space
 2. Detect workspace root — the **outermost** ancestor containing `.claude/`, `.opencode/`, `opencode.json`, or `opencode.jsonc`, **excluding `$HOME`**
 2.5. **WizTree fast scan** (Windows only) — if WizTree is installed, export CSV for instant size lookups; also accepts manually-exported CSVs
-3. Scan up to 31 categories in parallel (only those matching the detected platform fire) — uses WizTree data when available on Windows, falls back to PowerShell. On Linux/macOS, categories are grouped into Cross-platform / Windows-only / Unix sections; runtime guards skip non-applicable ones.
+3. Scan up to 32 categories in parallel and classify whole-drive or scoped top-consumer outliers beyond the fixed list — uses WizTree data when available on Windows, falls back to bounded platform-native scans. On Linux/macOS, categories are grouped into Cross-platform / Windows-only / Unix sections; runtime guards skip non-applicable ones.
 4. Display report table sorted by size
 5. User selects categories to clean (or `--dry-run` stops here)
 6. Execute cleanup — elevated categories batched into single UAC prompt
@@ -37,6 +37,7 @@ The skill instructs the active coding agent through 7 steps:
 ## Key Design Decisions
 
 - **WizTree acceleration:** Reads NTFS MFT directly, replacing dozens of slow `Get-ChildItem -Recurse` calls with instant CSV lookups via a Python helper script.
+- **Evidence-first outliers:** `find_outliers.py` turns a whole-drive WizTree export into non-overlapping material hotspots. The skill classifies these separately before any candidate is offered; fixed categories are safety policies, not discovery limits. `hiberfil.sys` is suppressed at source and never proposed.
 - **Committed helper scripts (Windows):** The scan/delete helpers are committed files, not inline heredocs. The skill resolves them from the repository, the synced `claude-config` workspace, or `${XDG_DATA_HOME:-~/.local/share}/agentic-cleanup/scripts/windows/cleanup/`. Only the WizTree CSV scratch lives in `/tmp/agentic-cleanup/` and is removed in Step 7.
 - **Structured contract pipeline:** `scripts/cleanup/` owns immutable evidence,
   selected plans, policy/executor allowlists, refreshed validation, and result

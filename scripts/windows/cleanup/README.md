@@ -18,6 +18,7 @@ hardcode a `/tmp/...` path inside a script.
 |--------|-------|---------|
 | `wt_lookup.py` | `printf '%s\n' '<winpath>' … \| python wt_lookup.py <csv>` | Size lookup: stdin paths → `sizeMB\|path` |
 | `find_targets.py` | `python find_targets.py <csv> <workspace_root>` | Top-level `node_modules` (≥10 MB) + `.next`/`.turbo`/`.parcel-cache`/`.vite` dirs |
+| `find_outliers.py` | `python find_outliers.py <csv> [--minimum-mb 100] [--limit 100]` | Read-only, non-overlapping whole-drive hotspots for classification; never emits `hiberfil.sys` |
 | `diskspace.ps1` | `powershell.exe -NoProfile -File diskspace.ps1 [C]` | `free total pct` in GB (default = system drive) |
 | `run_wiztree.ps1` | `powershell.exe -NoProfile -File run_wiztree.ps1 -WizTree <exe> -OutCsv <winpath>` | Elevated WizTree MFT export (one UAC; `/admin=0` times out) |
 | `squirrel.ps1` | `powershell.exe -NoProfile -File squirrel.ps1` | Discover Squirrel old `app-*` versions |

@@ -60,12 +60,18 @@ If [WizTree](https://www.diskanalyzer.com/) is installed, the scan phase complet
 - Auto-detected from common install paths
 - Falls back to PowerShell scanning if not installed
 - Also accepts a manually-exported WizTree CSV
+- Uses the whole-drive export to find material outliers beyond the fixed category list
+
+The outlier pass is read-only evidence. Each unexpected hotspot is classified as
+reclaimable, close-application-first, human-review, system-managed/protected, or
+live before it can be offered. Unknown paths are never automatic deletion
+targets, and expanded-audit candidates require explicit per-item selection.
 
 ## Windows helper scripts
 
-On Windows the scan and delete steps are backed by committed helper scripts in [`scripts/windows/cleanup/`](./scripts/windows/cleanup/) — a size lookup over the WizTree CSV, the `node_modules` / build-artifact finder, the elevated WizTree export, the orphan/old-version discovery scripts, and allowlisted structured executors. Versioned scan/plan/result contracts live in [`scripts/cleanup/`](./scripts/cleanup/). The installers place both under the shared agent-neutral data directory; the skill resolves them automatically. macOS/Linux runs need no helper scripts.
+On Windows the scan and delete steps are backed by committed helper scripts in [`scripts/windows/cleanup/`](./scripts/windows/cleanup/) — a size lookup over the WizTree CSV, whole-drive outlier discovery, the `node_modules` / build-artifact finder, the elevated WizTree export, the orphan/old-version discovery scripts, and allowlisted structured executors. Versioned scan/plan/result contracts live in [`scripts/cleanup/`](./scripts/cleanup/). The installers place both under the shared agent-neutral data directory; the skill resolves them automatically. macOS/Linux runs need no helper scripts.
 
-## What It Scans (31 categories)
+## What It Scans (32 categories)
 
 The skill detects the OS at runtime and only scans categories that apply.
 
@@ -79,19 +85,21 @@ The skill detects the OS at runtime and only scans categories that apply.
 | Linux — Arch (pacman), openSUSE (zypper) | Written, **not exercised** | Same as Debian. |
 | macOS | Written, **not exercised** end-to-end | All categories present: App Caches, Trash, Dev Tool Caches, Homebrew/MacPorts cache, Chromium-family browser caches under `~/Library/Application Support/`. Symmetric to Linux but hasn't been run on a real Mac. |
 
-### Cross-platform (7)
+### Cross-platform (9)
 
 | Category | What it finds |
 |----------|---------------|
 | node_modules (inactive) | `node_modules` in projects with no git activity in 4+ weeks (resolves repo root before testing — handles monorepos with nested packages) |
-| Package manager caches | npm, pnpm, yarn global caches |
+| Package manager caches | npm `_cacache`, individually validated stale/non-live `_npx` entries, pnpm, and yarn caches |
 | pip cache | Python package cache |
-| Claude Code debris | Debug logs, telemetry, old session logs (4+ weeks) |
+| Claude Code debris | Debug logs, telemetry, old session logs, stale MCP diagnostics, and superseded Claude binaries while preserving current/newest versions |
+| Downloaded model caches | Hugging Face model downloads, protected while referenced by a running model process |
+| Browser automation downloads | Playwright and Puppeteer browser distributions, protected while a test/browser process uses them |
 | Crash dumps & kernel reports | CrashDumps + LiveKernelReports (multi-GB watchdog dumps on Windows); equivalent on Linux/macOS |
 | Build artifacts | `.next/`, `.turbo/`, `.parcel-cache/`, `.vite/` in inactive projects |
 | Docker | Dangling images, build cache |
 
-### Windows-only (13)
+### Windows-only (12)
 
 | Category | What it finds |
 |----------|---------------|
@@ -100,9 +108,8 @@ The skill detects the OS at runtime and only scans categories that apply.
 | Delivery Optimization | Windows Update distribution cache (up to 20 GB) |
 | Windows Temp files | `%TEMP%` and `C:\Windows\Temp` |
 | Browser caches (Windows) | Chrome, Edge, Firefox, Brave cache and code cache |
-| Electron app caches | Cache dirs in Slack, Discord, Miro, Claude Desktop, Notion, etc. |
+| Electron app caches | Cache dirs in Slack, Discord, Miro, Claude Desktop, Notion, and Zoom's exact `data\WebviewCacheX64` subtree |
 | Stale updater files | Applied update packages in Linear, Notion, Signal, Squirrel apps |
-| Playwright browsers (Windows) | Downloaded browser binaries in `ms-playwright` |
 | Windows System Logs | CBS logs, OEM PC Manager logs |
 | VS Package Cache | Visual Studio installer package cache |
 | AppData remnants | Orphaned app data dirs for uninstalled programs (>50 MB, user-confirmed) |
@@ -149,7 +156,7 @@ Disk: 6.5GB free / 120GB total (95%)
  4  Browser caches            Firefox, Chrome, Edge              1.7 GB
  5  Windows System Logs       CBS, PCManager                     1.3 GB
  6  Electron app caches       Miro, Claude Desktop, Slack        1.0 GB
- 7  Playwright browsers       chromium-1208, chromium_headless    655 MB
+ 7  Browser automation        Playwright, Puppeteer               655 MB
  8  Windows Temp files        User temp (282 MB)                  282 MB
  9  node_modules (inactive)   dear-neighbors, my-community        141 MB
                                                          Total: 11.3 GB
@@ -160,6 +167,8 @@ Which categories to clean? Enter numbers (e.g., 1,2,3), all, or none to cancel.
 ## Safety
 
 - **Report first, act second.** Nothing is deleted until you choose.
+- **Evidence-first discovery.** Whole-drive or scoped top-consumer evidence finds unexpected outliers beyond the fixed categories; unknown paths remain review-only.
+- **Hibernation stays enabled.** `hiberfil.sys` is suppressed from outlier results and is never suggested as a cleanup candidate.
 - **WizTree = fast + safe.** Only used for size measurements, never deletes anything.
 - **Keeps newest versions.** Squirrel cleanup only removes old `app-*` directories.
 - **Respects active projects.** Only cleans node_modules and build artifacts in projects with no git activity in 4+ weeks.

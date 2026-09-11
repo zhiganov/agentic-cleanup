@@ -4,6 +4,24 @@ Slash command that scans a developer workstation for reclaimable disk space, rep
 
 Published as `zhiganov/agentic-cleanup`, with installers for Claude Code and OpenCode V2.
 
+## Governing Discovery Principle
+
+The scan is evidence-first, not category-limited. Start with whole-drive or
+whole-filesystem top consumers and unexpected outliers, then use the curated
+categories as safety policies and known cleanup mechanisms. Fixed categories
+must never define the boundary of what the scan can discover.
+
+Classify every material outlier as confirmed reclaimable, reclaimable after
+closing an application, requiring human review, system-managed/protected, or a
+live dependency. Broad runtime exclusions remain deletion boundaries, not
+visibility boundaries: inspect their descendants read-only and surface stale
+worktrees, build outputs, caches, and other abandoned task artifacts while
+preserving live paths. When a whole-volume index is unavailable, approximate
+the same discovery model with scoped top-consumer scans before reporting.
+
+`hiberfil.sys` is always protected system functionality. Never classify it as
+reclaimable or suggest disabling hibernation as a cleanup option.
+
 ## Invocation
 
 ```

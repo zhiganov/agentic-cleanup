@@ -25,6 +25,7 @@ For each category: how to detect/measure it, the skip threshold, and the clean c
 Almost always safe to clean — these are pure caches that the tool will refill on demand.
 
 - **npm.** Path: `~/.npm/_cacache` (Unix) / `~/AppData/Local/npm-cache` (Windows). Measure with `du -sm`. Clean: `npm cache clean --force`.
+- **stale npx packages.** Inspect immediate children of `_npx` separately. Offer only entries with no writes in 7 days and no running process beneath them; refresh that process check immediately before deleting each exact child. Never delete `_npx` or the npm cache root wholesale.
 - **pnpm.** Get the store path with `pnpm store path`, measure it. Clean: `pnpm store prune`.
 - **yarn.** Detect version with `yarn --version`. Classic v1: `yarn cache dir` → measure → `yarn cache clean`. Berry (v2+): per-project `.yarn/cache` dirs; `yarn cache clean --all`.
 - **pip.** `pip cache info` prints the path and size; `pip cache purge` empties it.
@@ -77,7 +78,7 @@ Measure and report. Skip if total is under 5 MB. `rm -rf` the contents; the OS w
 
 Coding assistants leave a lot of state behind. Most of it is recoverable from history; the rest is debug noise.
 
-- **Claude Code:** `~/.claude/debug/`, `~/.claude/file-history/`, `~/.claude/telemetry/`. Also `~/.claude/projects/*/<session>.jsonl` files older than 28 days.
+- **Claude Code:** `~/.claude/debug/`, `~/.claude/file-history/`, `~/.claude/telemetry/`. Also `~/.claude/projects/*/<session>.jsonl` files older than 28 days, exact stale `mcp-logs-*` directories under the Claude cache, and superseded `~/.local/share/claude/versions/<semver>` directories. Resolve `claude --version` first and always preserve both its exact directory and the newest installed version.
 - **Cursor:** `~/Library/Application Support/Cursor/Cache` (macOS), `~/.config/Cursor/Cache` (Linux). Same for the `CachedData` subdir.
 - **GitHub Copilot:** the LSP server caches under each editor's extension dir; usually small but worth a glance.
 
@@ -103,6 +104,16 @@ For each large subdirectory, the clean command is `rm -rf <path>/*` (contents on
 - Safari: `~/Library/Caches/com.apple.Safari/`.
 
 `rm -rf <path>/*` for each. Tell the user to close the browser first (locked files just get skipped, but it's cleaner). Logged-in sessions are stored separately and are *not* affected.
+
+### Downloaded models and browser automation
+
+- **Hugging Face:** `~/.cache/huggingface`. Clear only this exact cache after confirming no model process references it; models must be downloaded again.
+- **Puppeteer:** `~/.cache/puppeteer` on every platform.
+- **Playwright:** `%LOCALAPPDATA%\ms-playwright` on Windows, `~/Library/Caches/ms-playwright` on macOS, and `~/.cache/ms-playwright` on Linux.
+
+For Puppeteer and Playwright, skip the entire tool root if a running test or
+browser executable uses anything beneath it. Clear only the selected root's
+contents; the tool downloads required browsers again.
 
 ### Electron app updater leftovers
 
@@ -160,22 +171,32 @@ If `du -sh` is too slow on a nearly-full disk, alternatives:
 - **Linux:** `ncdu --exclude-from <list>` for interactive, or `gdu` for parallel.
 - **Windows:** WizTree reads the NTFS Master File Table directly — full drive scan in 10-30 seconds. If installed, export to CSV and use it as a lookup table for every category size; this turns a multi-minute scan into seconds.
 
-These are nice-to-haves, not required. `du -sm` on the paths above is fast enough for most setups.
+Use whole-drive or whole-filesystem top consumers as the discovery baseline,
+then apply the categories above as safety policies rather than treating them as
+the boundary of the scan. Classify unexpected outliers before offering them:
+confirmed regenerable data, close-application-first caches, human-review data,
+system-managed/protected paths, or live dependencies. Unknown paths are never
+automatic deletion targets. If no volume index is available, approximate this
+with bounded `du` drill-downs over the filesystem root, home, workspace, and
+cache roots.
 
 ## Windows appendix
 
 Most of the above works on Windows under Git Bash / WSL with path translation. A few categories are Windows-specific and worth checking on a Windows dev box:
 
-- **`C:\hiberfil.sys`** — hibernation file, often 4-8 GB. Disable with `powercfg /h off` (elevated) if you never hibernate.
 - **`C:\Windows\LiveKernelReports\`** — kernel watchdog dumps (single dumps can be 2-3 GB). Elevated `Remove-Item`.
 - **`C:\Windows.old\`** — previous Windows installation after a major update. Use Settings → System → Storage → Temporary Files. Don't `rm -rf` — permission errors.
 - **`%LOCALAPPDATA%\<app>\app-<version>\`** — Squirrel updater leaves old Electron app versions here. Keep only the newest `app-*` directory.
+- **`%APPDATA%\Zoom\data\WebviewCacheX64\`** — Zoom's regenerable WebView cache. Close Zoom and clear only this exact subtree, never the surrounding profile data.
 - **`C:\ProgramData\Microsoft\VisualStudio\Packages\`** — VS installer cache, often several GB. Elevated `Remove-Item`. VS will redownload packages if needed.
 - **`C:\Program Files (x86)\Windows Kits\10\Lib\<version>\`** — old Windows SDK versions side-by-side. Keep the newest; the rest are usually unreferenced.
 - **Orphaned VS installations** — directories under `Microsoft Visual Studio\<year>\` that `vswhere.exe -all` doesn't list anymore. Safe to remove.
 - **Browser/Electron caches** — same as Unix, but under `%LOCALAPPDATA%\<App>\User Data\Default\Cache` (Chromium-family) or `%APPDATA%\<App>\Cache`.
 
 Elevated operations should be batched: write all the `Remove-Item` calls to a single PowerShell script and launch it once with `Start-Process -Verb RunAs` so the user sees one UAC prompt, not ten.
+
+`C:\hiberfil.sys` is protected system functionality. Suppress it from outlier
+results and never suggest deleting it or disabling hibernation.
 
 ## Why this exists
 
