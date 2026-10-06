@@ -18,13 +18,14 @@ echo "Installing agentic-cleanup..."
 
 stage="$(mktemp -d "${TMPDIR:-/tmp}/agentic-cleanup-install.XXXXXX")"
 trap 'rm -rf "$stage"' EXIT
-mkdir -p "$stage/skills/agentic-cleanup" "$stage/scripts/windows/cleanup" "$stage/scripts/cleanup/schemas" "$stage/scripts/cleanup/policies"
+mkdir -p "$stage/skills/agentic-cleanup/references" "$stage/scripts/windows/cleanup" "$stage/scripts/cleanup/schemas" "$stage/scripts/cleanup/policies"
 curl -fsSL "$REPO_URL/cleanup.md" -o "$stage/cleanup.md"
 curl -fsSL "$REPO_URL/skills/agentic-cleanup/SKILL.md" -o "$stage/skills/agentic-cleanup/SKILL.md"
+curl -fsSL "$REPO_URL/skills/agentic-cleanup/references/workflow.md" -o "$stage/skills/agentic-cleanup/references/workflow.md"
 
-windows_files=(wt_lookup.py find_targets.py find_outliers.py assert_list.py live_paths.ps1 registered_mcp.ps1 diskspace.ps1 run_wiztree.ps1 squirrel.ps1 \
+windows_files=(wt_lookup.py find_targets.py find_outliers.py file_audit.py path_evidence.ps1 windows_maintenance.ps1 maintenance.ps1 assert_list.py live_paths.ps1 registered_mcp.ps1 diskspace.ps1 run_wiztree.ps1 squirrel.ps1 \
   appdata_orphans.ps1 winsdk.ps1 vs_orphans.ps1 scrub.ps1 scan.ps1 execute-plan.ps1 README.md)
-contract_files=(Cleanup.Contracts.psm1 build-plan.ps1 validate-plan.ps1 render-scan.ps1 README.md \
+contract_files=(Cleanup.Contracts.psm1 build-plan.ps1 validate-plan.ps1 render-scan.ps1 render-result.ps1 README.md \
   schemas/scan.schema.json schemas/plan.schema.json schemas/result.schema.json policies/windows.v1.json)
 
 for f in "${windows_files[@]}"; do
@@ -36,7 +37,7 @@ for f in "${contract_files[@]}"; do
 done
 curl -fsSL "$REPO_URL/install-manifest.sha256" -o "$stage/install-manifest.sha256"
 
-expected_paths=(cleanup.md skills/agentic-cleanup/SKILL.md)
+expected_paths=(cleanup.md skills/agentic-cleanup/SKILL.md skills/agentic-cleanup/references/workflow.md)
 for f in "${windows_files[@]}"; do expected_paths+=("scripts/windows/cleanup/$f"); done
 for f in "${contract_files[@]}"; do expected_paths+=("scripts/cleanup/$f"); done
 [ "$(wc -l < "$stage/install-manifest.sha256" | tr -d ' ')" -eq "${#expected_paths[@]}" ] || {
@@ -60,33 +61,34 @@ fi
 
 # Publish the manifest last so an interrupted update fails closed.
 for target in "$DATA_DIR" "$DATA_DIR/cleanup.md" "$DATA_DIR/install-manifest.sha256" "$DATA_DIR/installed-runtimes" \
-               "$DATA_DIR/skills" "$DATA_DIR/skills/agentic-cleanup" "$DATA_DIR/skills/agentic-cleanup/SKILL.md" \
+                "$DATA_DIR/skills" "$DATA_DIR/skills/agentic-cleanup" "$DATA_DIR/skills/agentic-cleanup/SKILL.md" "$DATA_DIR/skills/agentic-cleanup/references" "$DATA_DIR/skills/agentic-cleanup/references/workflow.md" \
                "$DATA_DIR/scripts" "$DATA_DIR/scripts/windows" "$DATA_DIR/scripts/windows/cleanup" \
                "$DATA_DIR/scripts/cleanup" "$DATA_DIR/scripts/cleanup/schemas" "$DATA_DIR/scripts/cleanup/policies"; do
   [ ! -L "$target" ] || { echo "Refusing to overwrite symlink: $target" >&2; exit 1; }
 done
 if [ "$install_claude" -eq 1 ]; then
   for target in "$CLAUDE_DIR" "$CLAUDE_DIR/commands" "$CLAUDE_DIR/commands/cleanup.md" \
-                "$CLAUDE_DIR/skills" "$CLAUDE_DIR/skills/agentic-cleanup" "$CLAUDE_DIR/skills/agentic-cleanup/SKILL.md"; do
+                 "$CLAUDE_DIR/skills" "$CLAUDE_DIR/skills/agentic-cleanup" "$CLAUDE_DIR/skills/agentic-cleanup/SKILL.md" "$CLAUDE_DIR/skills/agentic-cleanup/references" "$CLAUDE_DIR/skills/agentic-cleanup/references/workflow.md"; do
     [ ! -L "$target" ] || { echo "Refusing to overwrite symlink: $target" >&2; exit 1; }
   done
 fi
 if [ "$install_opencode" -eq 1 ]; then
   for target in "$OPENCODE_DIR" "$OPENCODE_DIR/commands" "$OPENCODE_DIR/commands/cleanup.md" \
-                "$OPENCODE_DIR/skills" "$OPENCODE_DIR/skills/agentic-cleanup" "$OPENCODE_DIR/skills/agentic-cleanup/SKILL.md"; do
+                 "$OPENCODE_DIR/skills" "$OPENCODE_DIR/skills/agentic-cleanup" "$OPENCODE_DIR/skills/agentic-cleanup/SKILL.md" "$OPENCODE_DIR/skills/agentic-cleanup/references" "$OPENCODE_DIR/skills/agentic-cleanup/references/workflow.md"; do
     [ ! -L "$target" ] || { echo "Refusing to overwrite symlink: $target" >&2; exit 1; }
   done
 fi
 
 mkdir -p "$DATA_DIR/skills/agentic-cleanup" "$DATA_DIR/scripts/windows/cleanup" "$DATA_DIR/scripts/cleanup"
 cp "$stage/cleanup.md" "$DATA_DIR/cleanup.md"
-cp "$stage/skills/agentic-cleanup/SKILL.md" "$DATA_DIR/skills/agentic-cleanup/SKILL.md"
+cp -R "$stage/skills/agentic-cleanup/." "$DATA_DIR/skills/agentic-cleanup/"
 cp -R "$stage/scripts/windows/cleanup/." "$DATA_DIR/scripts/windows/cleanup/"
 cp -R "$stage/scripts/cleanup/." "$DATA_DIR/scripts/cleanup/"
 if [ "$install_claude" -eq 1 ]; then
   mkdir -p "$CLAUDE_DIR/commands" "$CLAUDE_DIR/skills/agentic-cleanup"
   cp "$stage/cleanup.md" "$CLAUDE_DIR/commands/cleanup.md"
   cp "$stage/skills/agentic-cleanup/SKILL.md" "$CLAUDE_DIR/skills/agentic-cleanup/SKILL.md"
+  cp -R "$stage/skills/agentic-cleanup/references" "$CLAUDE_DIR/skills/agentic-cleanup/"
   cmp -s "$DATA_DIR/cleanup.md" "$CLAUDE_DIR/commands/cleanup.md"
   cmp -s "$DATA_DIR/skills/agentic-cleanup/SKILL.md" "$CLAUDE_DIR/skills/agentic-cleanup/SKILL.md"
   echo "Installed /cleanup for Claude Code -> $CLAUDE_DIR/commands/cleanup.md"
@@ -95,6 +97,7 @@ if [ "$install_opencode" -eq 1 ]; then
   mkdir -p "$OPENCODE_DIR/commands" "$OPENCODE_DIR/skills/agentic-cleanup"
   cp "$stage/cleanup.md" "$OPENCODE_DIR/commands/cleanup.md"
   cp "$stage/skills/agentic-cleanup/SKILL.md" "$OPENCODE_DIR/skills/agentic-cleanup/SKILL.md"
+  cp -R "$stage/skills/agentic-cleanup/references" "$OPENCODE_DIR/skills/agentic-cleanup/"
   cmp -s "$DATA_DIR/cleanup.md" "$OPENCODE_DIR/commands/cleanup.md"
   cmp -s "$DATA_DIR/skills/agentic-cleanup/SKILL.md" "$OPENCODE_DIR/skills/agentic-cleanup/SKILL.md"
   echo "Installed /cleanup for OpenCode V2 -> $OPENCODE_DIR/commands/cleanup.md"

@@ -95,7 +95,10 @@ foreach ($session in $claudeSessions) {
     })
 }
 
-$openCodeProcesses = @($procs.Values | Where-Object { $_.Name -eq 'opencode2.exe' })
+$openCodeProcesses = @($procs.Values | Where-Object {
+    $_.Name -match '^(?i:opencode(?:2|-desktop)?)(?:\.exe)?$' -or
+    ($_.Name -in @('node.exe', 'bun.exe') -and $_.CommandLine -match '(?i)[\\/]opencode(?:2)?[\\/].*(?:serve|run|tui)')
+})
 foreach ($process in $openCodeProcesses) {
     $isService = $process.CommandLine -match '\bserve\s+--service\b'
     $servers = if ($isService) {
@@ -113,6 +116,9 @@ foreach ($process in $openCodeProcesses) {
 }
 if ($openCodeProcesses.Count -gt 0) {
     $limitations.Add('OpenCode process ancestry is shared-service evidence and cannot attribute a process to an exact session.')
+}
+if ($env:OPENCODE_TERMINAL -eq '1' -and $openCodeProcesses.Count -eq 0) {
+    $limitations.Add('Active OpenCode runtime is not recognized by the process census; zero recognized processes is not absence.')
 }
 
 if ($JsonSummary) {

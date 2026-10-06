@@ -2,6 +2,20 @@
   "schemaVersion": "1.0",
   "policies": [
     {
+      "policyId": "build-cache-contents",
+      "executorId": "clear-directory-contents",
+      "mode": "contents-only",
+      "elevated": false,
+      "rootPolicyId": "workspace-build-cache-root",
+      "preconditions": {
+        "requireExists": true,
+        "rejectReparsePoint": true,
+        "liveness": "refresh-before-execution",
+        "freshness": "refresh-before-execution",
+        "registeredMcpOwnership": "not-applicable"
+      }
+    },
+    {
       "policyId": "npm-cache-clean",
       "executorId": "npm-cache-clean",
       "mode": "tool-command",
@@ -94,6 +108,7 @@
     { "executorId": "show-windows-storage-instructions", "mode": "manual-only", "elevated": true }
   ],
   "rootPolicies": [
+    { "rootPolicyId": "workspace-build-cache-root", "pathClass": "workspace-build-cache" },
     { "rootPolicyId": "npm-cacache-root", "pathClass": "npm-cacache" },
     { "rootPolicyId": "windows-user-temp-root", "pathClass": "user-temp" },
     { "rootPolicyId": "workspace-node-modules-root", "pathClass": "workspace-node-modules" },

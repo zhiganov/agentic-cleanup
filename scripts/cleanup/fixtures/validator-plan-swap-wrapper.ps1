@@ -12,6 +12,7 @@ param(
     [string]$HomePath,
     [string[]]$ClaudeConfigPath,
     [string[]]$OpenCodeConfigPath,
+    [switch]$AllowAbsentTargets,
     [switch]$Quiet
 )
 

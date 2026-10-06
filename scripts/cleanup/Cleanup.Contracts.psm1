@@ -143,7 +143,7 @@ function Assert-PlanSemantics {
     Assert-UniqueValues @($operations.operationId) 'operationId'
     Assert-UniqueValues @($operations | ForEach-Object { $_.target.resourceId }) 'operation target resourceId'
     $exclusions = @($Plan.exclusions)
-    Assert-UniqueValues @($exclusions.policyId) 'exclusion policyId'
+    Assert-UniqueValues @($exclusions | ForEach-Object policyId) 'exclusion policyId'
     if (Compare-Object @($selectedCategories | Sort-Object) @($buckets.categoryId | Sort-Object)) {
         throw 'Assertion buckets must match selected categories exactly'
     }
@@ -160,7 +160,7 @@ function Assert-PlanSemantics {
         $expectedExclusions['protect-runtime-scratch'] = [ordered]@{ path = [IO.Path]::GetFullPath((Join-Path $userTemp[0].canonicalPath 'claude')); relationship = 'subtree' }
         $expectedExclusions['protect-opencode-runtime-scratch'] = [ordered]@{ path = [IO.Path]::GetFullPath((Join-Path $userTemp[0].canonicalPath 'opencode')); relationship = 'subtree' }
     }
-    if (Compare-Object @($expectedExclusions.Keys | Sort-Object) @($exclusions.policyId | Sort-Object)) {
+    if (Compare-Object @($expectedExclusions.Keys | Sort-Object) @($exclusions | ForEach-Object policyId | Sort-Object)) {
         throw 'Plan exclusions must match mandatory scan-derived exclusions exactly'
     }
     foreach ($policyId in $expectedExclusions.Keys) {

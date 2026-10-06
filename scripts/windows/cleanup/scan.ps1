@@ -16,6 +16,7 @@ param(
     [long]$MinimumNodeModulesBytes = 10MB,
     [long]$MinimumBuildArtifactBytes = 10MB,
     [long]$MinimumConfigMsiBytes = 100MB,
+    [switch]$BuildCacheOnly,
     [switch]$SkipSessionCensus
 )
 
@@ -30,6 +31,7 @@ if (@($contractCandidates).Count -eq 0) { throw 'Could not locate cleanup contra
 $contractRoot = Resolve-Path @($contractCandidates)[0]
 Import-Module (Join-Path $contractRoot 'Cleanup.Contracts.psm1') -Force
 . (Join-Path $HelpersDirectory 'registered_mcp.ps1')
+. (Join-Path $HelpersDirectory 'path_evidence.ps1')
 $scanSchema = Join-Path $contractRoot 'schemas\scan.schema.json'
 
 function Get-CanonicalPath([string]$Path) {
@@ -54,7 +56,8 @@ function Get-PathBytes([string]$Path) {
 }
 
 function Get-DirectoryDigest([string]$Path) {
-    $rows = foreach ($file in Get-ChildItem -LiteralPath $Path -File -Recurse -Force | Sort-Object FullName) {
+    $rows = foreach ($file in Get-ChildItem -LiteralPath $Path -File -Recurse -Force |
+        Where-Object { $_.Extension -in @('.py', '.ps1', '.psm1', '.md', '.json') -and $_.FullName -notmatch '[\\/]__pycache__[\\/]' } | Sort-Object FullName) {
         $relative = [IO.Path]::GetRelativePath($Path, $file.FullName).Replace('\', '/')
         $text = [IO.File]::ReadAllText($file.FullName).TrimStart([char]0xFEFF)
         $normalized = $text.Replace("`r`n", "`n").Replace("`r", "`n")
@@ -110,7 +113,10 @@ function Resolve-Workspace([string]$Start, [string]$ExplicitRoot, [string]$Profi
 }
 
 function New-Sizes([long]$Logical, $Reclaimable, [long]$Protected) {
-    [ordered]@{ logicalBytes = $Logical; estimatedReclaimableBytes = $Reclaimable; protectedBytes = $Protected }
+    # This scanner measures logical metadata, not unique allocated extents.
+    # Positive logical eligibility is not a uniquely reclaimable-byte estimate.
+    $estimate = if ($null -eq $Reclaimable -or $Reclaimable -gt 0) { $null } else { 0L }
+    [ordered]@{ logicalBytes = $Logical; estimatedReclaimableBytes = $estimate; protectedBytes = $Protected }
 }
 
 function New-Message([string]$Code, [string]$Message, $CategoryId = $null, $ItemId = $null) {
@@ -161,14 +167,15 @@ function New-WindowsTempCategory([string]$Path) {
     $protected = 0L
     foreach ($name in @('agentic-cleanup', 'claude-cleanup', 'claude', 'opencode')) { $protected += Get-PathBytes (Join-Path $root $name) }
     $reclaimable = [Math]::Max(0L, $logical - $protected)
-    [object[]]$items = if (Test-Path -LiteralPath $root) { ,([ordered]@{
+    $items = @()
+    if (Test-Path -LiteralPath $root) { $items = @([ordered]@{
         itemId = 'user-temp'; displayName = 'User temp'; disposition = if ($reclaimable -gt 0) { 'eligible' } else { 'skipped-protected' }
         sizes = New-Sizes $logical $reclaimable $protected
         resources = @([ordered]@{ resourceId = 'user-temp-root'; kind = 'directory'; canonicalPath = $root; logicalBytes = $logical; protected = $false })
         operationPreview = [ordered]@{ policyId = 'windows-user-temp'; mode = 'contents-only'; elevated = $false }
         evidence = @([ordered]@{ kind = 'directory-exists'; source = 'filesystem'; value = $true })
         riskFlags = @('locked-files-expected', 'runtime-scratch-excluded'); requiresPerItemConfirmation = $false; affectedApplications = @()
-    }) } else { @() }
+    }) }
     [ordered]@{
         categoryId = 'windows-temp-files'; label = 'Windows Temp Files'
         status = if ($reclaimable -gt 0) { 'found' } elseif ($logical -gt 0) { 'skipped' } else { 'empty' }
@@ -177,9 +184,7 @@ function New-WindowsTempCategory([string]$Path) {
 }
 
 function Get-NewestWrite([string]$Path) {
-    $latest = (Get-ChildItem -LiteralPath $Path -File -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object LastWriteTimeUtc -Maximum).Maximum
-    if ($null -eq $latest) { return (Get-Item -LiteralPath $Path).LastWriteTimeUtc }
-    [DateTime]$latest
+    (Get-CleanupTreeEvidence $Path).newestWriteUtc
 }
 
 function Invoke-GitProbe([string[]]$Arguments) {
@@ -248,7 +253,7 @@ function New-NodeModulesCategory(
     }
     $items = [System.Collections.Generic.List[object]]::new()
     foreach ($directory in @(Find-NodeModules $Root)) {
-        $bytes = Get-PathBytes $directory.FullName
+        $bytes = [long](Get-CleanupTreeEvidence $directory.FullName).logicalBytes
         if ($bytes -lt $MinimumBytes) { continue }
         $canonical = Get-CanonicalPath $directory.FullName
         $project = Split-Path -Parent $canonical
@@ -289,7 +294,7 @@ function New-NodeModulesCategory(
     [ordered]@{
         categoryId = 'node-modules'; label = 'node_modules (Inactive)'
         status = if ($eligible.Count -gt 0) { 'found' } elseif ($items.Count -gt 0) { 'skipped' } else { 'empty' }
-        statusReason = $null; sizes = New-Sizes $logical $reclaimable $protectedBytes; items = @($items); warnings = @()
+        statusReason = $null; sizes = New-Sizes $logical $(if ($eligible.Count) { $null } else { 0L }) $protectedBytes; items = @($items); warnings = @()
     }
 }
 
@@ -317,10 +322,15 @@ function New-BuildArtifactCategory([string]$Root, [long]$MinimumBytes, [bool]$En
     }
     $items = [System.Collections.Generic.List[object]]::new()
     foreach ($artifact in @(Find-BuildArtifacts $Root)) {
-        $bytes = Get-PathBytes $artifact.FullName
+        if ($BuildCacheOnly) {
+            if ($artifact.Name -ne '.next' -or -not (Test-Path -LiteralPath (Join-Path $artifact.FullName 'cache'))) { continue }
+            $artifact = Get-Item -LiteralPath (Join-Path $artifact.FullName 'cache') -Force
+        }
+        $metadata = Get-CleanupTreeEvidence $artifact.FullName
+        $bytes = [long]$metadata.logicalBytes
         if ($bytes -lt $MinimumBytes) { continue }
         $git = Get-GitEvidence $artifact.FullName
-        $newest = Get-NewestWrite $artifact.FullName
+        $newest = $metadata.newestWriteUtc
         $fresh = $newest -gt [DateTime]::UtcNow.AddHours(-24)
         $disposition = if ($git.active) { 'skipped-active' } elseif ($fresh) { 'skipped-fresh' } else { 'eligible' }
         $itemId = Get-StableId ($artifact.Name.TrimStart('.').Replace('.', '-')) (Get-CanonicalPath $artifact.FullName)
@@ -329,7 +339,7 @@ function New-BuildArtifactCategory([string]$Root, [long]$MinimumBytes, [bool]$En
             itemId = $itemId; displayName = "$($artifact.Parent.Name) $($artifact.Name)"; disposition = $disposition
             sizes = New-Sizes $bytes $(if ($disposition -eq 'eligible') { $bytes } else { 0L }) 0
             resources = @([ordered]@{ resourceId = $resourceId; kind = 'directory'; canonicalPath = Get-CanonicalPath $artifact.FullName; logicalBytes = $bytes; protected = $false })
-            operationPreview = [ordered]@{ policyId = 'inactive-build-artifact'; mode = 'whole-directory'; elevated = $false }
+            operationPreview = [ordered]@{ policyId = if ($BuildCacheOnly) { 'build-cache-contents' } else { 'inactive-build-artifact' }; mode = if ($BuildCacheOnly) { 'contents-only' } else { 'whole-directory' }; elevated = $false }
             evidence = @(
                 [ordered]@{ kind = 'git-last-commit'; source = 'git-log'; value = $git.lastCommit },
                 [ordered]@{ kind = 'newest-file'; source = 'filesystem'; value = $newest.ToString('o') }
@@ -345,7 +355,7 @@ function New-BuildArtifactCategory([string]$Root, [long]$MinimumBytes, [bool]$En
     [ordered]@{
         categoryId = 'build-artifacts'; label = 'Build Artifacts'
         status = if ($eligible.Count -gt 0) { 'found' } elseif ($items.Count -gt 0) { 'skipped' } else { 'empty' }
-        statusReason = $null; sizes = New-Sizes $logical $reclaimable 0; items = @($items); warnings = @()
+        statusReason = $null; sizes = New-Sizes $logical $(if ($eligible.Count) { $null } else { 0L }) 0; items = @($items); warnings = @()
     }
 }
 

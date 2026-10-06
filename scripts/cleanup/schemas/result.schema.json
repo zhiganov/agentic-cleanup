@@ -23,8 +23,11 @@
         "properties": {
           "operationId": { "type": "string", "minLength": 1 },
           "status": { "enum": ["removed", "contents-cleared", "locked-skipped", "recreated", "manual-required", "validated-noop", "failed"] },
-          "bytesBefore": { "type": "integer", "minimum": 0 },
-          "bytesAfter": { "type": "integer", "minimum": 0 },
+          "bytesBefore": { "type": ["integer", "null"], "minimum": 0 },
+          "bytesAfter": { "type": ["integer", "null"], "minimum": 0 },
+          "diskBefore": { "$ref": "#/$defs/diskSnapshot" },
+          "diskAfter": { "$ref": "#/$defs/diskSnapshot" },
+          "repositoryStatusUnchanged": { "type": ["boolean", "null"] },
           "message": { "type": "string", "minLength": 1 }
         }
       }

@@ -67,6 +67,26 @@ reclaimable, close-application-first, human-review, system-managed/protected, or
 live before it can be offered. Unknown paths are never automatic deletion
 targets, and expanded-audit candidates require explicit per-item selection.
 
+Largest files can be reported independently with `find_outliers.py --files
+--json`: folder grouping and depth limits no longer hide nested individual files.
+Without a fresh index, `file_audit.py` audits only explicitly selected known
+folders or exact roots, resolving Windows redirection and reporting overlaps,
+links, inaccessible paths, budget limits and top-N omissions. It never opens file
+contents, hydrates cloud placeholders, relocates files or deletes personal data.
+
+The skill now has a short governing entry point and on-demand category recipes.
+Reports distinguish logical size, local allocation, unknown uniquely reclaimable
+storage and observed signed net disk change. The default selectable threshold is
+50 MiB and can be changed without weakening deletion boundaries.
+
+Windows cache-only plans preserve `.next/cache` roots and sibling build output.
+Exact absent selections are validated no-ops. Old Windows logs use a committed
+exact-file worker instead of wildcard deletion, protecting current/newest,
+changed, fresh, linked and locked files. Supported DISM runs use `/NoRestart`,
+conservative servicing guards and bounded natural-exit waits, never `/ResetBase`
+or an automatic second pass. Elevated mutation requires an already elevated
+trusted process; missing worker output is not interpreted as declined UAC.
+
 ## Windows helper scripts
 
 On Windows the scan and delete steps are backed by committed helper scripts in [`scripts/windows/cleanup/`](./scripts/windows/cleanup/) — a size lookup over the WizTree CSV, whole-drive outlier discovery, the `node_modules` / build-artifact finder, the elevated WizTree export, the orphan/old-version discovery scripts, and allowlisted structured executors. Versioned scan/plan/result contracts live in [`scripts/cleanup/`](./scripts/cleanup/). The installers place both under the shared agent-neutral data directory; the skill resolves them automatically. macOS/Linux runs need no helper scripts.

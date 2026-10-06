@@ -82,7 +82,7 @@ try {
     Assert-True (@($nodeModules.items).Count -eq 3) 'Scanner emits top-level node_modules above the threshold without nested duplicates'
     Assert-True (@($nodeModules.items | Where-Object disposition -eq 'eligible').Count -eq 1) 'Scanner makes inactive unregistered node_modules eligible'
     Assert-True (@($nodeModules.items | Where-Object disposition -eq 'skipped-protected').Count -eq 2) 'Scanner protects Claude Code and OpenCode registered MCP projects'
-    Assert-True ($nodeModules.sizes.estimatedReclaimableBytes -gt 0 -and $nodeModules.sizes.protectedBytes -gt 0) 'Scanner separates reclaimable and MCP-protected node_modules bytes'
+    Assert-True ($null -eq $nodeModules.sizes.estimatedReclaimableBytes -and $nodeModules.sizes.protectedBytes -gt 0) 'Scanner preserves unknown unique recovery separately from MCP-protected logical bytes'
     Assert-True (($scan.categories | Where-Object categoryId -eq 'build-artifacts').items[0].disposition -eq 'eligible') 'Scanner emits an inactive, cold build artifact'
     Assert-True (($scan.categories | Where-Object categoryId -eq 'config-msi-leftovers').items[0].operationPreview.elevated) 'Scanner marks Config.Msi as elevated'
     Assert-True (($scan.categories | Where-Object categoryId -eq 'windows-old').items[0].disposition -eq 'manual-only') 'Scanner keeps Windows.old manual-only'

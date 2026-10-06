@@ -47,11 +47,12 @@ function Invoke-WebRequest {
 }
 
 $savedEnvironment = @{}
-foreach ($name in @('AGENTIC_CLEANUP_REPO_URL', 'AGENTIC_CLEANUP_RUNTIME', 'CLAUDE_CONFIG_DIR', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME')) {
+foreach ($name in @('AGENTIC_CLEANUP_REPO_URL', 'AGENTIC_CLEANUP_RUNTIME', 'AGENTIC_CLEANUP_DATA_DIR', 'CLAUDE_CONFIG_DIR', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME')) {
     $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name)
 }
 
 try {
+    $env:AGENTIC_CLEANUP_DATA_DIR = $null
     $env:AGENTIC_CLEANUP_REPO_URL = $fixtureUrl
     $env:CLAUDE_CONFIG_DIR = Join-Path $testRoot 'claude'
     $env:XDG_CONFIG_HOME = Join-Path $testRoot 'config'
@@ -69,6 +70,7 @@ try {
     Assert-True (Test-Path -LiteralPath $openCodeCommand -PathType Leaf) 'PowerShell installer publishes the OpenCode command'
     Assert-True (Test-Path -LiteralPath $claudeSkill -PathType Leaf) 'PowerShell installer publishes the Claude Code skill'
     Assert-True (Test-Path -LiteralPath $openCodeSkill -PathType Leaf) 'PowerShell installer publishes the OpenCode skill'
+    Assert-True (Test-Path -LiteralPath (Join-Path (Split-Path -Parent $openCodeSkill) 'references\workflow.md') -PathType Leaf) 'PowerShell installer publishes the selected runtime reference'
     Assert-True (Test-Path -LiteralPath (Join-Path $dataDir 'install-manifest.sha256') -PathType Leaf) 'PowerShell installer publishes the shared manifest'
     Assert-True ((Get-FileHash -LiteralPath $claudeCommand).Hash -eq (Get-FileHash -LiteralPath $openCodeCommand).Hash) 'PowerShell runtime command copies are byte-identical'
 
@@ -142,7 +144,7 @@ try {
 
     $bashResult = Invoke-GitBash $gitBash "$bashEnvironment AGENTIC_CLEANUP_RUNTIME=all '$bashPath/install.sh'"
     if ($bashResult.ExitCode -ne 0) { throw "FAIL: Git Bash all-runtime installation exited $($bashResult.ExitCode): $($bashResult.Stderr)" }
-    $installedSkill = [IO.File]::ReadAllText($bashOpenCodeSkill)
+    $installedSkill = [IO.File]::ReadAllText((Join-Path (Split-Path -Parent $bashOpenCodeSkill) 'references\workflow.md'))
     $preambleMatch = [regex]::Match($installedSkill, '(?s)```bash\r?\n(.*?)\r?\n```')
     Assert-True $preambleMatch.Success 'Installed skill exposes its integrity preamble'
     $guardScript = Join-Path $bashRoot 'verify.sh'
@@ -184,6 +186,15 @@ try {
     [IO.File]::WriteAllText($bashOpenCodeSkill, 'stale-opencode-skill', [Text.UTF8Encoding]::new($false))
     $bashResult = Invoke-GitBash $gitBash $openCodeGuard
     Assert-True ($bashResult.ExitCode -ne 0) 'OpenCode integrity rejects its stale active skill'
+
+    $bashResult = Invoke-GitBash $gitBash "$bashEnvironment AGENTIC_CLEANUP_RUNTIME=opencode '$bashPath/install.sh'"
+    if ($bashResult.ExitCode -ne 0) { throw 'FAIL: fixture reference-check setup could not repair its selected skill' }
+    $activeReference = Join-Path (Split-Path -Parent $bashOpenCodeSkill) 'references\workflow.md'
+    [IO.File]::WriteAllText($activeReference, 'stale-reference', [Text.UTF8Encoding]::new($false))
+    $bashResult = Invoke-GitBash $gitBash $openCodeGuard
+    Assert-True ($bashResult.ExitCode -ne 0) 'OpenCode integrity rejects its stale active workflow reference'
+    $bashResult = Invoke-GitBash $gitBash $claudeGuard
+    Assert-True ($bashResult.ExitCode -eq 0) 'Claude Code guard does not inspect the unselected OpenCode reference'
 
     $env:AGENTIC_CLEANUP_RUNTIME = 'invalid'
     try {

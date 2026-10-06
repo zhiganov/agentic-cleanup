@@ -22,6 +22,7 @@ if (@($contractCandidates).Count -eq 0) { throw 'Could not locate cleanup contra
 $contractRoot = Resolve-Path @($contractCandidates)[0]
 if (-not $PolicyRegistryPath) { $PolicyRegistryPath = Join-Path $contractRoot 'policies\windows.v1.json' }
 Import-Module (Join-Path $contractRoot 'Cleanup.Contracts.psm1') -Force
+. (Join-Path $PSScriptRoot 'path_evidence.ps1')
 $validator = Join-Path $contractRoot 'validate-plan.ps1'
 $resultSchema = Join-Path $contractRoot 'schemas\result.schema.json'
 
@@ -36,14 +37,9 @@ function Read-JsonDocument([string]$Path) {
 }
 
 function Get-PathBytes([string]$Path) {
-    if (-not (Test-Path -LiteralPath $Path)) { return 0L }
-    $item = Get-Item -LiteralPath $Path -Force
-    if (-not $item.PSIsContainer) { return [long]$item.Length }
-    $sum = 0L
-    foreach ($file in @(Get-ChildItem -LiteralPath $Path -File -Recurse -Force -ErrorAction SilentlyContinue)) {
-        $sum += [long]$file.Length
-    }
-    [long]$sum
+    try { [long](Get-CleanupTreeEvidence $Path).logicalBytes }
+    catch [System.Management.Automation.ItemNotFoundException] { return 0L }
+    catch { return $null } # unavailable metadata is not zero bytes
 }
 
 function Get-DiskSnapshot([string]$Path) {
@@ -66,6 +62,24 @@ function Test-IsAdministrator {
     $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
+function Get-RepositoryStatusDigest([string]$Path) {
+    $current = Split-Path -Parent $Path
+    while ($current) {
+        if (Test-Path -LiteralPath (Join-Path $current '.git')) {
+            if (-not (Get-Command git -ErrorAction SilentlyContinue)) { return $null }
+            $rows = @(& git -C $current status --porcelain=v1 --untracked-files=normal 2>$null)
+            if ($LASTEXITCODE -ne 0) { return $null }
+            $bytes = [Text.Encoding]::UTF8.GetBytes(($rows -join "`n"))
+            return [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes))
+        }
+        if ($current -eq $scan.workspace.root) { break }
+        $parent = Split-Path -Parent $current
+        if ($parent -eq $current) { break }
+        $current = $parent
+    }
+    return $null
+}
+
 $scanDocument = Read-JsonDocument $ScanPath
 $planDocument = Read-JsonDocument $PlanPath
 $scan = $scanDocument.value
@@ -81,6 +95,7 @@ $validationParameters = @{
     ClaudeConfigPath = $ClaudeConfigPath
     OpenCodeConfigPath = $OpenCodeConfigPath
     Quiet = $true
+    AllowAbsentTargets = $true
 }
 & $validator @validationParameters
 $started = [DateTime]::UtcNow
@@ -88,22 +103,37 @@ $diskBefore = Get-DiskSnapshot $scan.workspace.root
 $results = [System.Collections.Generic.List[object]]::new()
 $warnings = [System.Collections.Generic.List[string]]::new()
 $failures = [System.Collections.Generic.List[string]]::new()
+function Add-OperationResult([object]$Row) {
+    $Row.diskBefore = $operationDiskBefore
+    $Row.diskAfter = Get-DiskSnapshot $scan.workspace.root
+    $repositoryStatusAfter = Get-RepositoryStatusDigest $target
+    $Row.repositoryStatusUnchanged = if ($null -ne $repositoryStatusBefore -and $null -ne $repositoryStatusAfter) { $repositoryStatusBefore -eq $repositoryStatusAfter } else { $null }
+    if ($Row.repositoryStatusUnchanged -eq $false) { [void]$warnings.Add("$($operation.operationId): repository status changed; do not attribute or revert concurrent work.") }
+    $results.Add($Row)
+}
 :operationLoop foreach ($operation in @($plan.operations)) {
     $target = [string]$operation.target.canonicalPath
+    $repositoryStatusBefore = Get-RepositoryStatusDigest $target
+    $operationDiskBefore = Get-DiskSnapshot $scan.workspace.root
     try {
         & $validator @validationParameters -OperationId $operation.operationId
     } catch {
         $message = "Precondition failed immediately before execution: $($_.Exception.Message)"
         [void]$failures.Add("$($operation.operationId): $message")
         $unchangedBytes = Get-PathBytes $target
-        $results.Add([ordered]@{ operationId = $operation.operationId; status = 'failed'; bytesBefore = $unchangedBytes; bytesAfter = $unchangedBytes; message = $message })
+        Add-OperationResult ([ordered]@{ operationId = $operation.operationId; status = 'failed'; bytesBefore = $unchangedBytes; bytesAfter = $unchangedBytes; message = $message })
         continue
     }
     $before = Get-PathBytes $target
-    if ($WhatIf) {
-        $results.Add([ordered]@{ operationId = $operation.operationId; status = 'validated-noop'; bytesBefore = $before; bytesAfter = $before; message = 'Plan validated; no mutation requested.' })
+    if (-not (Test-Path -LiteralPath $target) -and $operation.policyId -in @('inactive-build-artifact', 'inactive-node-modules', 'build-cache-contents')) {
+        Add-OperationResult ([ordered]@{ operationId = $operation.operationId; status = 'validated-noop'; bytesBefore = 0L; bytesAfter = 0L; message = 'Exact approved target is absent after refresh; no replacement scope was selected.' })
         continue
     }
+    if ($WhatIf) {
+        Add-OperationResult ([ordered]@{ operationId = $operation.operationId; status = 'validated-noop'; bytesBefore = $before; bytesAfter = $before; message = 'Plan validated; no mutation requested.' })
+        continue
+    }
+    $operationDiskBefore = Get-DiskSnapshot $scan.workspace.root
     try {
         $lockedSkip = $false
         $removeCompleted = $false
@@ -119,11 +149,14 @@ $failures = [System.Collections.Generic.List[string]]::new()
                     [IO.Path]::GetFullPath((Join-Path $env:TEMP 'agentic-cleanup')),
                     [IO.Path]::GetFullPath((Join-Path $env:TEMP 'claude-cleanup'))
                 )
-                foreach ($child in @(Get-ChildItem -LiteralPath $target -Force -ErrorAction SilentlyContinue)) {
+                foreach ($child in @(Get-ChildItem -LiteralPath $target -Force -ErrorAction Stop)) {
                     $excluded = @($plan.exclusions | Where-Object { Test-PathInside $child.FullName $_.canonicalPath $_.relationship })
                     $mandatoryDenied = @($mandatoryDenies | Where-Object { Test-PathInside $child.FullName $_ 'subtree' }).Count -gt 0
                     if ($excluded.Count -gt 0 -or $mandatoryDenied) { continue }
-                    try { Remove-Item -LiteralPath $child.FullName -Recurse -Force -ErrorAction Stop }
+                    try {
+                        if ($child.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Linked child preserved' }
+                        Remove-Item -LiteralPath $child.FullName -Recurse -Force -ErrorAction Stop
+                    }
                     catch {
                         $lockedSkip = $true
                         [void]$warnings.Add("$($operation.operationId): locked/skipped '$($child.FullName)': $($_.Exception.Message)")
@@ -137,14 +170,14 @@ $failures = [System.Collections.Generic.List[string]]::new()
             }
             'remove-directory-tree-elevated' {
                 if (-not (Test-IsAdministrator)) {
-                    $results.Add([ordered]@{ operationId = $operation.operationId; status = 'manual-required'; bytesBefore = $before; bytesAfter = $before; message = 'Run the committed executor from an already elevated trusted process; automatic UAC launching is intentionally unavailable.' })
+                    Add-OperationResult ([ordered]@{ operationId = $operation.operationId; status = 'manual-required'; bytesBefore = $before; bytesAfter = $before; message = 'Run the committed executor from an already elevated trusted process; automatic UAC launching is intentionally unavailable.' })
                     continue operationLoop
                 }
                 Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop
                 $removeCompleted = $true
             }
             'show-windows-storage-instructions' {
-                $results.Add([ordered]@{ operationId = $operation.operationId; status = 'manual-required'; bytesBefore = $before; bytesAfter = $before; message = 'Use Settings > System > Storage > Temporary files.' })
+                Add-OperationResult ([ordered]@{ operationId = $operation.operationId; status = 'manual-required'; bytesBefore = $before; bytesAfter = $before; message = 'Use Settings > System > Storage > Temporary files.' })
                 continue operationLoop
             }
             default { throw "Executor '$($operation.executorId)' is not implemented" }
@@ -166,10 +199,10 @@ $failures = [System.Collections.Generic.List[string]]::new()
             default { if (-not (Test-Path -LiteralPath $target)) { 'removed' } elseif ($removeCompleted) { 'recreated' } else { 'failed' } }
         }
         if ($status -eq 'failed') { [void]$failures.Add("$($operation.operationId): target remains unchanged") }
-        $results.Add([ordered]@{ operationId = $operation.operationId; status = $status; bytesBefore = $before; bytesAfter = $after; message = "Executor '$($operation.executorId)' completed with status '$status'." })
+        Add-OperationResult ([ordered]@{ operationId = $operation.operationId; status = $status; bytesBefore = $before; bytesAfter = $after; message = "Executor '$($operation.executorId)' completed with status '$status'." })
     } catch {
         [void]$failures.Add("$($operation.operationId): $($_.Exception.Message)")
-        $results.Add([ordered]@{ operationId = $operation.operationId; status = 'failed'; bytesBefore = $before; bytesAfter = Get-PathBytes $target; message = $_.Exception.Message })
+        Add-OperationResult ([ordered]@{ operationId = $operation.operationId; status = 'failed'; bytesBefore = $before; bytesAfter = Get-PathBytes $target; message = $_.Exception.Message })
     }
 }
 
