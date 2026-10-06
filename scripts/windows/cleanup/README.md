@@ -53,14 +53,29 @@ that estimate null until there is evidence for allocated extents and link
 ownership. `render-result.ps1` separates logical scope change, per-operation net
 disk change and overall signed net change; unavailable measurements remain null.
 
-Windows `DirEntry.stat()` may return zero inode/device/link counts; file audits
-refresh with `os.stat(..., follow_symlinks=False)` before identity deduplication.
-Cloud recall flags suppress allocation probes. Ordinary files use metadata-only
-FILE_STANDARD_INFO allocation, avoiding logical-size rounding errors for resident
-NTFS data; sparse/compressed files use GetCompressedFileSizeW. Neither number
-proves that deleting one hardlink will release the underlying storage.
+File audits pin the entire directory ancestry from the volume root down and keep
+parent scopes alive while inspecting descendants. Windows directory handles use
+LIST_DIRECTORY + READ_ATTRIBUTES, OPEN_REPARSE_POINT and read-only sharing;
+READ_ATTRIBUTES alone does **not** enforce replacement/write exclusion. Busy,
+linked or unpinnable scopes are reported as incomplete, never retried through an
+unsafe pathname walk. Handles are released on budget stops and errors. Unix uses
+parent-relative O_NOFOLLOW directory descriptors for enumeration and stat.
+
+Windows `DirEntry.stat()` may omit identity information. Ordinary file metadata
+and allocation therefore come from one attribute-only, no-follow file handle;
+even if the leaf name changes, allocation never reopens that name. Cloud recall
+flags suppress file-handle/allocation probes. Ordinary files use FILE_STANDARD_INFO,
+avoiding logical-size rounding errors for resident NTFS data; sparse/compressed
+files use FILE_COMPRESSION_INFO on the same handle. Neither number proves that
+deleting one hardlink will release the underlying storage.
+Deduplication requires full FILE_ID_INFO (128-bit identifier and volume identity);
+the legacy 64-bit file index can collide on ReFS. An unavailable full identity is
+explicitly skipped rather than silently dropping unrelated files as hardlinks.
 See [FILE_STANDARD_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_standard_info)
-and [GetCompressedFileSizeW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getcompressedfilesizew).
+and [FILE_COMPRESSION_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_compression_info).
+The [CreateFileW sharing contract](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew)
+excludes attribute-only opens from sharing checks. Keep native replacement/write
+sharing regressions; a mock that only checks flags cannot establish the boundary.
 
 Log evidence is at most one hour old, exact-file only and revalidated before
 deletion; current/newest, fresh, changed, linked and locked files are retained.

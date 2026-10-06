@@ -31,8 +31,20 @@ complete. Isolated source/installer, scan-guard, cache, validator and executor
 fixtures pass. The review reproduced and fixed directory-to-file cache deletion
 and linked-dependency discovery aborts. No full suite or model benchmark ran.
 
-Review blocker: replacing a directory with a junction between lstat and scandir
-lets the metadata audit report an unselected target. The committed synthetic
-repro confirms it. A larger identity-pinned/no-follow traversal repair requires
-user approval before implementation or merge; it was not attempted in review.
+Approved audit-race repair: hold no-follow ancestry/directory scopes for the
+depth-first walk; Windows directory sharing prevents namespace replacement and
+Unix enumeration/stat use parent-relative descriptors. Allocation queries use
+the original file handle, not a mutable pathname. Busy scopes fail closed and
+coverage remains explicit. Native regression attempts are blocked with no
+outside metadata. Independent delta re-review found no remaining scope blocker.
+It caught a ReFS reporting regression, also fixed: query full 128-bit FILE_ID_INFO
+from the original handle rather than the legacy 64-bit index. The collision
+fixture preserves distinct high halves and a true hardlink duplicate.
+
+Current repair evidence: all 20 focused file-audit tests pass on native Windows;
+the replacement reproduction attempts the race and reports no outside metadata.
+The local 33-file manifest check passes. Independent fix verification confirms
+both repairs. POSIX descriptor traversal was inspected but not runtime-tested.
+Unchanged prior cache/scanner/executor/installer evidence is reused rather than
+running a broader suite. GitHub has reported no CI checks.
 No real elevated servicing, runtime installation, merge or release was performed.

@@ -77,6 +77,9 @@ Without a fresh index, `file_audit.py` audits only explicitly selected known
 folders or exact roots, resolving Windows redirection and reporting overlaps,
 links, inaccessible paths, budget limits and top-N omissions. It never opens file
 contents, hydrates cloud placeholders, relocates files or deletes personal data.
+Traversal holds no-follow directory scopes, including ancestors, so replacing a
+directory cannot redirect metadata reads. Busy/unpinnable paths are disclosed as
+incomplete coverage rather than followed through a weaker fallback.
 
 The skill now has a short governing entry point and on-demand category recipes.
 Reports distinguish logical size, local allocation, unknown uniquely reclaimable
