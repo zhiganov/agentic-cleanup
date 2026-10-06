@@ -12,17 +12,27 @@ shared hooks/services while developing this work.
   Bundle conservative servicing guards and worker-owned DISM result handling.
 - Split the large skill into a small entry point and on-demand references,
   preserving category recipes and safety boundaries.
-- Synchronize canonical workflow/helpers in claude-config with this publication;
-  update both installers and release integrity checks for every new resource.
+- Keep all implementation in agentic-cleanup; update both installers and release
+  integrity checks for every new resource. Do not create a second source repo.
 - Verify focused fixtures, PowerShell parsing, distribution parity, and manifest
   inventory. No full test suite, dependency install, production build, paid model
   benchmark, service restart, or browser use is authorized.
-- Commit/push implementation branches and open ordinary PRs against each repo's
-  default branch. Stop at PR creation; retain checkout branches for review.
+- Commit/push the implementation branch and use agentic-cleanup#23. Review it,
+  but do not merge, release or install runtime copies without explicit approval.
 
-Status: implementation and focused synthetic fixtures complete; preparing the
-two ordinary PRs. File-audit tests cover 11 scenarios; maintenance, cache-only,
-executor, validator, scanner, census, fixed-category, outlier, installer and
-manifest checks passed. No full-suite or model benchmark was run. Canonical
-source remains claude-config; product tracking stays in agentic-cleanup.
-Runtime installation, real elevated servicing, merge and release are not done.
+Ownership correction: agentic-cleanup is the sole code and tracker owner. The
+former canonical/published duplication is rejected. claude-config#163 was closed
+unmerged and its task-only branch removed; its default branch is unchanged.
+Legacy runtime/config copies are preserved, but are not helper-resolution or
+cross-repository synchronization targets. No ambient instructions are changed.
+
+Status: ownership/source-resolution correction and local manifest generation are
+complete. Isolated source/installer, scan-guard, cache, validator and executor
+fixtures pass. The review reproduced and fixed directory-to-file cache deletion
+and linked-dependency discovery aborts. No full suite or model benchmark ran.
+
+Review blocker: replacing a directory with a junction between lstat and scandir
+lets the metadata audit report an unselected target. The committed synthetic
+repro confirms it. A larger identity-pinned/no-follow traversal repair requires
+user approval before implementation or merge; it was not attempted in review.
+No real elevated servicing, runtime installation, merge or release was performed.

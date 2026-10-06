@@ -56,7 +56,7 @@ Parse the optional arguments supplied by the invoking command. If they contain `
 
 ## Helper scripts (Windows)
 
-The Windows scan/delete helpers are **committed files** — do NOT re-author them as inline heredocs. Backslash literals get mangled inside a heredoc, and a hardcoded `/tmp/...` path inside a script is not MSYS-converted (only command-line arguments are); both bit on 2026-06-26. They live in one of three layouts: `scripts/windows/cleanup/` in a standalone `agentic-cleanup` checkout, `${XDG_DATA_HOME:-~/.local/share}/agentic-cleanup/scripts/windows/cleanup/` after installation, or `claude-config/scripts/windows/cleanup/` in the synced workspace. Resolve the directory once at the start of the run:
+The Windows scan/delete helpers are **committed files** — do NOT re-author them as inline heredocs. Backslash literals get mangled inside a heredoc, and a hardcoded `/tmp/...` path inside a script is not MSYS-converted (only command-line arguments are). This repository is the sole source; installed payloads are release consumers. Resolve one complete payload root for both helpers and contracts. Legacy copies in other repositories are not candidates and are not compared or synchronized:
 
 ```bash
 # Workspace root = the OUTERMOST ancestor containing .claude, .opencode,
@@ -77,21 +77,31 @@ resolve_root() {
 }
 root="$(resolve_root)"
 agentic_data="${AGENTIC_CLEANUP_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/agentic-cleanup}"
-CLEANUP_SCRIPTS=""
-for cand in "$root/claude-config/scripts/windows/cleanup" "$root/agentic-cleanup/scripts/windows/cleanup" "$root/scripts/windows/cleanup" "$agentic_data/scripts/windows/cleanup"; do
-  [ -f "$cand/wt_lookup.py" ] && CLEANUP_SCRIPTS="$cand" && break
+source_checkout=""
+if command -v git >/dev/null 2>&1; then
+  source_checkout="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+fi
+CLEANUP_ROOT=""
+for payload in "$root/agentic-cleanup" "$source_checkout" "$root" "$agentic_data"; do
+  [ -n "$payload" ] || continue
+  # Source roots must identify this product, not an arbitrary helpers directory.
+  if [ "$payload" != "$agentic_data" ]; then
+    [ -f "$payload/install.sh" ] && [ -f "$payload/install.ps1" ] || continue
+  fi
+  [ -f "$payload/cleanup.md" ] && \
+  [ -f "$payload/skills/agentic-cleanup/SKILL.md" ] && \
+  [ -f "$payload/skills/agentic-cleanup/references/workflow.md" ] && \
+  [ -f "$payload/scripts/windows/cleanup/wt_lookup.py" ] && \
+  [ -f "$payload/scripts/cleanup/Cleanup.Contracts.psm1" ] && CLEANUP_ROOT="$payload" && break
 done
-[ -n "$CLEANUP_SCRIPTS" ] || CLEANUP_SCRIPTS="$(dirname "$(find "$root" "$agentic_data" -maxdepth 7 -path '*/wt_lookup.py' 2>/dev/null | grep -i cleanup | head -1)")"
-CLEANUP_CONTRACTS=""
-for cand in "$root/claude-config/scripts/cleanup" "$root/agentic-cleanup/scripts/cleanup" "$root/scripts/cleanup" "$agentic_data/scripts/cleanup"; do
-  [ -f "$cand/Cleanup.Contracts.psm1" ] && CLEANUP_CONTRACTS="$cand" && break
-done
+[ -n "$CLEANUP_ROOT" ] || { echo "STOP: no complete agentic-cleanup source or installed payload; use the product's installer"; exit 1; }
+CLEANUP_SCRIPTS="$CLEANUP_ROOT/scripts/windows/cleanup"
+CLEANUP_CONTRACTS="$CLEANUP_ROOT/scripts/cleanup"
+echo "CLEANUP_ROOT = $CLEANUP_ROOT"
 
-# A regular installed payload must be bound to the active runtime command and skill pair.
-# A maintainer junction resolves elsewhere and is covered by provenance below.
+# An installed payload must be bound to the active runtime command and skill pair.
 installed_helpers="$agentic_data/scripts/windows/cleanup"
-if [ "$CLEANUP_SCRIPTS" = "$installed_helpers" ] && \
-   [ "$(cd "$installed_helpers" 2>/dev/null && pwd -P)" = "$(cd "$installed_helpers" 2>/dev/null && pwd -L)" ]; then
+if [ "$CLEANUP_ROOT" = "$agentic_data" ]; then
   manifest="$agentic_data/install-manifest.sha256"
   [ -f "$manifest" ] || { echo "STOP: installed cleanup manifest is missing; reinstall /cleanup"; exit 1; }
   manifest_paths=(
@@ -135,40 +145,19 @@ if [ "$CLEANUP_SCRIPTS" = "$installed_helpers" ] && \
 fi
 ```
 
-**Say which copy you resolved, then check it against canonical. Refuse to run on drift.**
-
-These files exist in more than one place, all writable, and the resolver silently picks by order — so the run can execute a copy that is months behind the one you last edited, and nothing says so. Print the resolution, and on a machine that holds both checkouts, compare them:
-
-```bash
-echo "CLEANUP_SCRIPTS = $CLEANUP_SCRIPTS"
-
-# Maintainer machines carry two checkouts: claude-config (canonical, loaded via the
-# <workspace>/.claude/commands junction) and agentic-cleanup (what install.sh publishes).
-cc="$root/claude-config"; cl="$root/agentic-cleanup"
-same() { diff -q --strip-trailing-cr "${1}" "${2}" >/dev/null 2>&1 || cmp -s "${1}" "${2}"; }   # See below
-if [ -d "$cc" ] && [ -d "$cl" ]; then
-  drift=0
-  same "$cc/commands/cleanup.md" "$cl/cleanup.md" || { echo "DRIFT: cleanup.md"; drift=1; }
-   same "$cc/skills/agentic-cleanup/SKILL.md" "$cl/skills/agentic-cleanup/SKILL.md" || { echo "DRIFT: skills/agentic-cleanup/SKILL.md"; drift=1; }
-   same "$cc/skills/agentic-cleanup/references/workflow.md" "$cl/skills/agentic-cleanup/references/workflow.md" || { echo "DRIFT: cleanup workflow reference"; drift=1; }
-  for f in "$cc/scripts/windows/cleanup"/*.py "$cc/scripts/windows/cleanup"/*.ps1; do
-    [ -e "$f" ] || continue
-    same "$f" "$cl/scripts/windows/cleanup/$(basename "$f")" || { echo "DRIFT: $(basename "$f")"; drift=1; }
-  done
-  while IFS= read -r f; do
-    rel="${f#"$cc/scripts/cleanup/"}"
-    same "$f" "$cl/scripts/cleanup/$rel" || { echo "DRIFT: scripts/cleanup/$rel"; drift=1; }
-  done < <(find "$cc/scripts/cleanup" -type f \( -name '*.ps1' -o -name '*.psm1' -o -name '*.json' \) ! -path '*/tests/*' ! -path '*/fixtures/*' | sort)
-  [ "$drift" -eq 0 ] && echo "provenance OK — canonical == published" \
-                     || { echo "STOP: sync canonical -> published before running"; exit 1; }
-fi
-```
-
-**Compare Windows checkouts with `diff --strip-trailing-cr`, not byte-exact `cmp`.** Both repos are `core.autocrlf=true` with no `.gitattributes`: git stores LF and checkout writes CRLF, so a working-tree file is LF or CRLF depending purely on whether it arrived via `git checkout` or via a copy — and **git calls both clean**. The helper falls back to `cmp` only where `diff` lacks that option, which is safe for the ordinary LF checkouts on those platforms. This was caught by testing the check rather than trusting it (2026-07-16): `git checkout -- wt_lookup.py` restored it as CRLF (993 bytes vs canonical's 966), and the first draft of this guard duly failed on a file that had not changed at all.
+**Use one product root; refuse mixed releases.** The resolver never imports or
+compares another repository's source. For a source checkout, invoke this repo's
+command and skill, and verify its normalized manifest with
+`python scripts/cleanup/update-manifest.py --check` before running helpers.
+Installed payloads must pass the inventory/hash and active-runtime checks above.
+Do not use a legacy skill together with newer helpers, and do not copy missing
+resources from another repo. A missing or mismatched release is a hard stop.
 
 **Never let an install artifact shadow the source on a maintainer machine.** The installers write the selected global runtime command copies plus a shared payload under the user data directory. A global Claude Code command **outranks the project junction**, while an OpenCode project command outranks its global copy. Test installers only with temporary `CLAUDE_CONFIG_DIR`, `XDG_CONFIG_HOME`, and `XDG_DATA_HOME` values; do not install snapshots over the canonical maintainer setup.
 
-**Why this is a hard stop and not a warning** (2026-07-16): the machine had been running a **26 June** download for three weeks. Its `find_targets.py` was missing `backs_mcp_server()` — the code filter that keeps live-MCP-server `node_modules` out of the candidate list, added 29 June *after* two book-power MCPs broke with `-32000` when a cleanup wiped their deps. The published repository (then `claude-cleanup`, now `agentic-cleanup`) was stale too, so the download was a faithful copy of a stale source: **anyone who installed `/cleanup` got a tool missing its own safety fix.** Compounding it, the workspace-root walk-up (see the nested-`.claude` bug) mis-resolved `$root`, which is exactly what makes the resolver fall through candidates 1 and 2 to the installed copy at candidate 3. A stale copy plus a mis-scoped root silently disables a safety filter — and the only thing that prevented a repeat of 29 June was the user not picking that category.
+Stale or mixed helpers can omit ownership protections even when their scan output
+looks plausible. Release integrity, exact source selection and per-operation
+validation are safety gates, not a reason to maintain duplicate implementations.
 
 | Script | Purpose |
 |--------|---------|
@@ -186,7 +175,7 @@ fi
 | `scrub.ps1 -ListFile <file>` | Hook-safe batch deleter (one path per line) |
 | `execute-plan.ps1` | Validate and run only operations resolved through the committed policy registry; elevated targets require an already elevated trusted process |
 
-PowerShell helpers: `powershell.exe -NoProfile -File "$(cygpath -w "$CLEANUP_SCRIPTS/<name>.ps1")" …`. Python helpers: `python "$CLEANUP_SCRIPTS/<name>.py" …`. Always pass the CSV path and workspace root as **command-line arguments** (MSYS converts those). If `$CLEANUP_SCRIPTS` can't be resolved, fall back to each category's per-path PowerShell/`du` sizing — but the committed files are the supported path; do not re-author them inline.
+PowerShell helpers: `powershell.exe -NoProfile -File "$(cygpath -w "$CLEANUP_SCRIPTS/<name>.ps1")" …`. Python helpers: `python "$CLEANUP_SCRIPTS/<name>.py" …`. Always pass the CSV path and workspace root as **command-line arguments** (MSYS converts those). If the payload cannot be resolved or verified, stop; do not substitute another repo's helpers or re-author them inline.
 
 ### Step 1: Detect Platform and Measure Disk Space
 
@@ -209,15 +198,11 @@ For `--structured-preview`, require Windows, PowerShell 7 (`pwsh`), and both res
 
 ```bash
 scan="/tmp/agentic-cleanup/scan-$(date +%s).json"
-published_args=()
-[ -d "$cl/scripts/windows/cleanup" ] && \
-  published_args=(-PublishedHelpersDirectory "$(cygpath -w "$cl/scripts/windows/cleanup")")
 pwsh -NoProfile -File "$(cygpath -w "$CLEANUP_SCRIPTS/scan.ps1")" \
   -OutputPath "$(cygpath -w "$scan")" \
   -WorkspaceRoot "$(cygpath -w "$root")" \
   -HelpersDirectory "$(cygpath -w "$CLEANUP_SCRIPTS")" \
-  -ContractDirectory "$(cygpath -w "$CLEANUP_CONTRACTS")" \
-  "${published_args[@]}"
+  -ContractDirectory "$(cygpath -w "$CLEANUP_CONTRACTS")"
 pwsh -NoProfile -File "$(cygpath -w "$CLEANUP_CONTRACTS/render-scan.ps1")" \
   -ScanPath "$(cygpath -w "$scan")"
 ```

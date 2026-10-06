@@ -143,6 +143,7 @@ function Add-OperationResult([object]$Row) {
                 $removeCompleted = $true
             }
             'clear-directory-contents' {
+                if (-not (Get-Item -LiteralPath $target -Force -ErrorAction Stop).PSIsContainer) { throw 'Contents-only target is no longer a directory' }
                 $mandatoryDenies = @(
                     [IO.Path]::GetFullPath((Join-Path $env:TEMP 'claude')),
                     [IO.Path]::GetFullPath((Join-Path $env:TEMP 'opencode')),

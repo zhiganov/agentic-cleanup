@@ -40,7 +40,7 @@ This entry point governs safety, selection, accounting, and newer helper usage.
 
 ## Resolve and discover
 
-- Follow **Helper scripts** in the reference to resolve canonical/published or
+- Follow **Helper scripts** in the reference to resolve this product's source or
   installed payloads and enforce release integrity. Announce the chosen copy.
   Missing/mixed helpers are a hard stop, not permission to rewrite inline code.
 - Resolve the outermost workspace marker excluding the user home. Reject home,

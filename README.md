@@ -2,6 +2,10 @@
 
 Safe disk cleanup for coding agents. One `/cleanup` command scans a developer workstation for reclaimable disk space, reports what it finds, and deletes only the categories the user selects.
 
+This repository is the sole source for the command, skill, helpers, contracts,
+tests and installers. Installed runtime copies are release consumers; there is
+no companion implementation or synchronization dependency in a config repository.
+
 ## Install
 
 macOS/Linux:

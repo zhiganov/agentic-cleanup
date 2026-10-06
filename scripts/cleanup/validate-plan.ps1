@@ -146,11 +146,14 @@ foreach ($operation in $operationsToValidate) {
 
     Add-Check 'root-policy' (Test-RootPolicy $operation $scan $registry ([bool]$ProcessFixture)) $operation.preconditions.rootPolicyId
     $exists = $false
-    try { $null = Get-Item -LiteralPath $target -Force -ErrorAction Stop; $exists = $true }
+    try { $targetItem = Get-Item -LiteralPath $target -Force -ErrorAction Stop; $exists = $true }
     catch [System.Management.Automation.ItemNotFoundException] { }
     $absentNoop = $AllowAbsentTargets -and -not $exists -and $operation.policyId -in @('inactive-build-artifact', 'inactive-node-modules', 'build-cache-contents')
     if ($operation.preconditions.requireExists) {
         Add-Check 'exists-or-validated-absent' ($exists -or $absentNoop) $(if ($absentNoop) { 'Exact approved target is absent; no-op only' } else { 'Target existence refreshed' })
+    }
+    if ($exists -and $operation.mode -in @('whole-directory', 'contents-only')) {
+        Add-Check 'directory-kind' ([bool]$targetItem.PSIsContainer) 'Approved directory must still be a directory, not a replacement file'
     }
     if ($operation.preconditions.rejectReparsePoint) {
         $reparseBoundary = if (Test-PathInside $target $scan.workspace.root) { [string]$scan.workspace.root } else { $target }

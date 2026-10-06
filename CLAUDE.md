@@ -4,7 +4,7 @@ This file provides guidance to coding agents working in this repository.
 
 ## Overview
 
-Published `/cleanup` command and `agentic-cleanup` skill for Claude Code and OpenCode V2. It scans a developer workstation for reclaimable disk space across 32 categories and lets users selectively clean them. Cross-platform: Windows, macOS, Linux. Uses WizTree for instant NTFS scanning on Windows when available.
+Source repository and distribution for the `/cleanup` command and `agentic-cleanup` skill for Claude Code and OpenCode V2. It scans a developer workstation for reclaimable disk space across 32 categories and lets users selectively clean them. Cross-platform: Windows, macOS, Linux. Uses WizTree for instant NTFS scanning on Windows when available.
 
 Repo: `zhiganov/agentic-cleanup`. Tagline: "Safe disk cleanup for coding agents."
 
@@ -38,7 +38,7 @@ The skill instructs the active coding agent through 7 steps:
 
 - **WizTree acceleration:** Reads NTFS MFT directly, replacing dozens of slow `Get-ChildItem -Recurse` calls with instant CSV lookups via a Python helper script.
 - **Evidence-first outliers:** `find_outliers.py` turns a whole-drive WizTree export into non-overlapping material hotspots. The skill classifies these separately before any candidate is offered; fixed categories are safety policies, not discovery limits. `hiberfil.sys` is suppressed at source and never proposed.
-- **Committed helper scripts (Windows):** The scan/delete helpers are committed files, not inline heredocs. The skill resolves them from the repository, the synced `claude-config` workspace, or `${XDG_DATA_HOME:-~/.local/share}/agentic-cleanup/scripts/windows/cleanup/`. Only the WizTree CSV scratch lives in `/tmp/agentic-cleanup/` and is removed in Step 7.
+- **Committed helper scripts (Windows):** The scan/delete helpers are committed files, not inline heredocs. Resolve the skill, helpers and contracts from this repository or one verified installed payload under `${XDG_DATA_HOME:-~/.local/share}/agentic-cleanup/`. Never fall back to another project's copy or mix payload roots. Use unique per-run scratch and remove only that run's artifacts.
 - **Structured contract pipeline:** `scripts/cleanup/` owns immutable evidence,
   selected plans, policy/executor allowlists, refreshed validation, and result
   schemas. `scripts/windows/cleanup/scan.ps1` and `execute-plan.ps1` are the
@@ -75,7 +75,7 @@ When editing `skills/agentic-cleanup/SKILL.md`:
 - WizTree-accelerated categories must have a "Fallback:" path for when WizTree isn't available
 - **Do NOT test installers against the real user directories.** Set temporary `CLAUDE_CONFIG_DIR`, `XDG_CONFIG_HOME`, and `XDG_DATA_HOME` values so global command copies cannot shadow canonical sources.
 - Keep `cleanup.md` thin: it may only delegate to the skill and forward `$ARGUMENTS`; workflow instructions belong in the skill.
-- **Canonical is `zhiganov/claude-config`** (`commands/cleanup.md` + `skills/agentic-cleanup/SKILL.md` + `scripts/windows/cleanup/` + `scripts/cleanup/`) — that workspace is where the workflow is iterated. This repo is the **published** copy that `install.sh` serves. Sync canonical → here and keep the `install.sh`/`install.ps1` fetch lists current; a skill or helper that is not in both lists is content no installed user ever downloads. The skill's integrity preamble hash-compares the two checkouts and refuses to run on drift.
-- **Compare Windows checkouts with `diff --strip-trailing-cr`.** Both repos are `core.autocrlf=true` with no `.gitattributes`, so a working-tree file is LF or CRLF depending only on whether it arrived via `git checkout` or a copy — and git calls both clean. Byte-exact `cmp` is only a fallback on platforms whose `diff` lacks the option and whose checkouts remain LF.
-- `python scripts/cleanup/sync-publication.py <canonical-repo>` performs a narrow maintainer sync and normalized release-manifest generation; `--check` verifies parity without writing. It never installs runtime copies or cleans the workstation. Update both installers when the release inventory changes.
+- **Sole source owner is `zhiganov/agentic-cleanup`.** New cleanup commands, skills, helpers, contracts, tests, installers and product issues belong here. The former claude-config-canonical arrangement is superseded. Do not duplicate implementation there or open a companion PR; existing copies are legacy consumers, not sources. If another instruction still claims a different owner, raise the conflict before editing, rather than continuing the old duplication.
+- **Release integrity stays local to this product.** Keep both installer fetch lists and `install-manifest.sha256` complete. Normalize LF/CRLF before hashing repository files; installed release files and the active runtime command/skill/reference must match the verified release.
+- `python scripts/cleanup/update-manifest.py` regenerates this repository's normalized release manifest; `--check` verifies it without writing. It never copies code across repositories, installs runtime copies or cleans the workstation. Update both installers when the release inventory changes.
 - **`grep -i -F` aborts** (SIGABRT, exit 134) on Git-for-Windows GNU grep 3.0 — any input, even `echo hello | grep -c -i -F hello`. Use `-F` without `-i`; do case-insensitive fixed-string matching in Python or PowerShell. An abort emits nothing, and nothing looks exactly like "no matches".

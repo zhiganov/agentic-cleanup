@@ -156,6 +156,15 @@ try {
     $unknownGuard = "cd '$bashPath/work' && env -u OPENCODE_TERMINAL -u CLAUDECODE $guardEnvironment '$bashPath/verify.sh'"
     $bashResult = Invoke-GitBash $gitBash $openCodeGuard
     if ($bashResult.ExitCode -ne 0) { throw "FAIL: Installed OpenCode integrity preamble exited $($bashResult.ExitCode): $($bashResult.Stderr)" }
+    $legacyHelpers = Join-Path $bashRoot 'work\claude-config\scripts\windows\cleanup'
+    $legacyContracts = Join-Path $bashRoot 'work\claude-config\scripts\cleanup'
+    [IO.Directory]::CreateDirectory((Join-Path $bashRoot 'work\.claude')) | Out-Null
+    [IO.Directory]::CreateDirectory($legacyHelpers) | Out-Null
+    [IO.Directory]::CreateDirectory($legacyContracts) | Out-Null
+    [IO.File]::WriteAllText((Join-Path $legacyHelpers 'wt_lookup.py'), 'legacy fixture must not be loaded')
+    [IO.File]::WriteAllText((Join-Path $legacyContracts 'Cleanup.Contracts.psm1'), 'legacy fixture must not be loaded')
+    $bashResult = Invoke-GitBash $gitBash $openCodeGuard
+    Assert-True ($bashResult.ExitCode -eq 0 -and $bashResult.Stdout.Contains("CLEANUP_ROOT = $bashPath/data/agentic-cleanup")) 'Legacy config-repo helpers cannot shadow the complete installed product payload'
     $bashResult = Invoke-GitBash $gitBash $claudeGuard
     if ($bashResult.ExitCode -ne 0) { throw "FAIL: Installed Claude Code integrity preamble exited $($bashResult.ExitCode): $($bashResult.Stderr)" }
     $bashResult = Invoke-GitBash $gitBash $unknownGuard
@@ -195,6 +204,17 @@ try {
     Assert-True ($bashResult.ExitCode -ne 0) 'OpenCode integrity rejects its stale active workflow reference'
     $bashResult = Invoke-GitBash $gitBash $claudeGuard
     Assert-True ($bashResult.ExitCode -eq 0) 'Claude Code guard does not inspect the unselected OpenCode reference'
+
+    $sourceRoot = Join-Path $bashRoot 'work\agentic-cleanup'
+    [IO.Directory]::CreateDirectory($sourceRoot) | Out-Null
+    Copy-Item -Path (Join-Path $bashFixture '*') -Destination $sourceRoot -Recurse
+    [IO.File]::WriteAllText((Join-Path $sourceRoot 'install.ps1'), '# source fixture product marker')
+    [IO.File]::WriteAllText((Join-Path $sourceRoot 'install.sh'), '# source fixture product marker')
+    $bashResult = Invoke-GitBash $gitBash $openCodeGuard
+    Assert-True ($bashResult.ExitCode -eq 0 -and $bashResult.Stdout.Contains("CLEANUP_ROOT = $bashPath/work/agentic-cleanup")) 'A complete product checkout resolves helpers and contracts together without a companion repo'
+    Remove-Item -LiteralPath (Join-Path $sourceRoot 'scripts\cleanup\Cleanup.Contracts.psm1')
+    $bashResult = Invoke-GitBash $gitBash $openCodeGuard
+    Assert-True ($bashResult.ExitCode -ne 0) 'An incomplete checkout cannot borrow config-repo contracts or bypass stale installed release checks'
 
     $env:AGENTIC_CLEANUP_RUNTIME = 'invalid'
     try {

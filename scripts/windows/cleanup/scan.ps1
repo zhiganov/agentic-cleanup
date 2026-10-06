@@ -252,8 +252,10 @@ function New-NodeModulesCategory(
         }
     }
     $items = [System.Collections.Generic.List[object]]::new()
+    $metadataWarnings = [System.Collections.Generic.List[object]]::new()
     foreach ($directory in @(Find-NodeModules $Root)) {
-        $bytes = [long](Get-CleanupTreeEvidence $directory.FullName).logicalBytes
+        try { $bytes = [long](Get-CleanupTreeEvidence $directory.FullName).logicalBytes }
+        catch { $metadataWarnings.Add([ordered]@{ code = 'incomplete-metadata'; message = "Skipped linked/inaccessible/budget-limited dependency scope; size unknown: $($directory.FullName)" }); continue }
         if ($bytes -lt $MinimumBytes) { continue }
         $canonical = Get-CanonicalPath $directory.FullName
         $project = Split-Path -Parent $canonical
@@ -294,7 +296,7 @@ function New-NodeModulesCategory(
     [ordered]@{
         categoryId = 'node-modules'; label = 'node_modules (Inactive)'
         status = if ($eligible.Count -gt 0) { 'found' } elseif ($items.Count -gt 0) { 'skipped' } else { 'empty' }
-        statusReason = $null; sizes = New-Sizes $logical $(if ($eligible.Count) { $null } else { 0L }) $protectedBytes; items = @($items); warnings = @()
+        statusReason = $null; sizes = New-Sizes $logical $(if ($eligible.Count) { $null } else { 0L }) $protectedBytes; items = @($items); warnings = @($metadataWarnings)
     }
 }
 
@@ -321,12 +323,14 @@ function New-BuildArtifactCategory([string]$Root, [long]$MinimumBytes, [bool]$En
         }
     }
     $items = [System.Collections.Generic.List[object]]::new()
+    $metadataWarnings = [System.Collections.Generic.List[object]]::new()
     foreach ($artifact in @(Find-BuildArtifacts $Root)) {
         if ($BuildCacheOnly) {
-            if ($artifact.Name -ne '.next' -or -not (Test-Path -LiteralPath (Join-Path $artifact.FullName 'cache'))) { continue }
+            if ($artifact.Name -ne '.next' -or -not (Test-Path -LiteralPath (Join-Path $artifact.FullName 'cache') -PathType Container)) { continue }
             $artifact = Get-Item -LiteralPath (Join-Path $artifact.FullName 'cache') -Force
         }
-        $metadata = Get-CleanupTreeEvidence $artifact.FullName
+        try { $metadata = Get-CleanupTreeEvidence $artifact.FullName }
+        catch { $metadataWarnings.Add([ordered]@{ code = 'incomplete-metadata'; message = "Skipped linked/inaccessible/budget-limited build scope; size unknown: $($artifact.FullName)" }); continue }
         $bytes = [long]$metadata.logicalBytes
         if ($bytes -lt $MinimumBytes) { continue }
         $git = Get-GitEvidence $artifact.FullName
@@ -355,7 +359,7 @@ function New-BuildArtifactCategory([string]$Root, [long]$MinimumBytes, [bool]$En
     [ordered]@{
         categoryId = 'build-artifacts'; label = 'Build Artifacts'
         status = if ($eligible.Count -gt 0) { 'found' } elseif ($items.Count -gt 0) { 'skipped' } else { 'empty' }
-        statusReason = $null; sizes = New-Sizes $logical $(if ($eligible.Count) { $null } else { 0L }) 0; items = @($items); warnings = @()
+        statusReason = $null; sizes = New-Sizes $logical $(if ($eligible.Count) { $null } else { 0L }) 0; items = @($items); warnings = @($metadataWarnings)
     }
 }
 
