@@ -12,6 +12,7 @@ param(
     [string]$HomePath = $HOME,
     [string[]]$ClaudeConfigPath,
     [string[]]$OpenCodeConfigPath,
+    [switch]$AllowAbsentTargets,
     [switch]$Quiet
 )
 
@@ -19,6 +20,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'Cleanup.Contracts.psm1') -Force
 . (Join-Path $HelpersDirectory 'registered_mcp.ps1')
+. (Join-Path $HelpersDirectory 'path_evidence.ps1')
 $scanSchema = Join-Path $PSScriptRoot 'schemas\scan.schema.json'
 $planSchema = Join-Path $PSScriptRoot 'schemas\plan.schema.json'
 
@@ -51,9 +53,7 @@ function Get-ReparsePointsInPath([string]$Path, [string]$Boundary) {
 }
 
 function Get-NewestWrite([string]$Path) {
-    $latest = (Get-ChildItem -LiteralPath $Path -File -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object LastWriteTimeUtc -Maximum).Maximum
-    if ($null -eq $latest) { return (Get-Item -LiteralPath $Path).LastWriteTimeUtc }
-    [DateTime]$latest
+    (Get-CleanupTreeEvidence $Path).newestWriteUtc
 }
 
 function Test-RootPolicy([object]$Operation, [object]$Scan, [object]$Registry, [bool]$FixtureMode) {
@@ -76,6 +76,11 @@ function Test-RootPolicy([object]$Operation, [object]$Scan, [object]$Registry, [
         }
         'workspace-build-artifact' {
             return (Test-PathInside $path $Scan.workspace.root) -and (Split-Path -Leaf $path) -in @('.next', '.turbo', '.parcel-cache', '.vite')
+        }
+        'workspace-build-cache' {
+            $buildRoot = Split-Path -Parent $path
+            return (Test-PathInside $path $Scan.workspace.root) -and
+                (Split-Path -Leaf $path) -eq 'cache' -and (Split-Path -Leaf $buildRoot) -eq '.next'
         }
         'workspace-node-modules' {
             if (-not (Test-PathInside $path $Scan.workspace.root) -or (Split-Path -Leaf $path) -ne 'node_modules') { return $false }
@@ -140,10 +145,17 @@ foreach ($operation in $operationsToValidate) {
     }
 
     Add-Check 'root-policy' (Test-RootPolicy $operation $scan $registry ([bool]$ProcessFixture)) $operation.preconditions.rootPolicyId
+    $exists = $false
+    try { $targetItem = Get-Item -LiteralPath $target -Force -ErrorAction Stop; $exists = $true }
+    catch [System.Management.Automation.ItemNotFoundException] { }
+    $absentNoop = $AllowAbsentTargets -and -not $exists -and $operation.policyId -in @('inactive-build-artifact', 'inactive-node-modules', 'build-cache-contents')
     if ($operation.preconditions.requireExists) {
-        Add-Check 'exists' (Test-Path -LiteralPath $target) $target
+        Add-Check 'exists-or-validated-absent' ($exists -or $absentNoop) $(if ($absentNoop) { 'Exact approved target is absent; no-op only' } else { 'Target existence refreshed' })
     }
-    if ($operation.preconditions.rejectReparsePoint -and (Test-Path -LiteralPath $target)) {
+    if ($exists -and $operation.mode -in @('whole-directory', 'contents-only')) {
+        Add-Check 'directory-kind' ([bool]$targetItem.PSIsContainer) 'Approved directory must still be a directory, not a replacement file'
+    }
+    if ($operation.preconditions.rejectReparsePoint) {
         $reparseBoundary = if (Test-PathInside $target $scan.workspace.root) { [string]$scan.workspace.root } else { $target }
         $reparsePoints = @(Get-ReparsePointsInPath $target $reparseBoundary)
         Add-Check 'no-reparse-points' ($reparsePoints.Count -eq 0) $(if ($reparsePoints.Count) { $reparsePoints -join ', ' } else { 'No reparse point exists from the approved root to the target' })
@@ -160,9 +172,24 @@ foreach ($operation in $operationsToValidate) {
             Add-Check 'installer-idle' ($installers.Count -eq 0) $(if ($installers.Count) { $installers -join ', ' } else { 'No installer/update process detected' })
         }
     }
-    if ($operation.preconditions.freshness -eq 'refresh-before-execution') {
+    if ($exists -and $operation.preconditions.freshness -eq 'refresh-before-execution') {
         $newest = Get-NewestWrite $target
         Add-Check 'cold-for-24-hours' ($newest -le [DateTime]::UtcNow.AddHours(-24)) $newest.ToString('o')
+    }
+    if ($exists -and $operation.policyId -in @('inactive-build-artifact', 'inactive-node-modules', 'build-cache-contents')) {
+        $metadata = Get-CleanupTreeEvidence $target
+        Add-Check 'metadata-complete' $true "Logical bytes refreshed: $($metadata.logicalBytes)"
+        # A process can launch Next.js using a relative path from the project root.
+        # Without reliable CWD attribution, preserve all selected builds while a
+        # Next/Vite/watch invocation is present, rather than declaring them idle.
+        if ($operation.preconditions.freshness -eq 'refresh-before-execution') {
+            $processRows = if ($ProcessFixture) { @(Read-Json $ProcessFixture) } else { @(Get-CimInstance Win32_Process -ErrorAction Stop) }
+            $activeBuilds = @($processRows | Where-Object {
+                $_.Name -in @('node.exe', 'bun.exe', 'npm.exe', 'npm.cmd') -and
+                $_.CommandLine -match '(?i)(?:\bnext(?:\.js)?\b|\bvite\b|--watch)(?:\s|[\\/]|$)'
+            })
+            Add-Check 'no-unattributed-build' ($activeBuilds.Count -eq 0) 'Conservative build/watch process guard'
+        }
     }
     if ($operation.preconditions.registeredMcpOwnership -eq 'refresh-before-execution') {
         try {

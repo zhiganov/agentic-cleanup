@@ -17,7 +17,7 @@ function Get-NormalizedDigest([string]$Path) {
 
 function Resolve-Source([string]$InstallPath) {
     if ($InstallPath -eq 'cleanup.md') { return Join-Path $repoRoot 'cleanup.md' }
-    if ($InstallPath -eq 'skills/agentic-cleanup/SKILL.md') { return Join-Path $repoRoot 'skills\agentic-cleanup\SKILL.md' }
+    if ($InstallPath.StartsWith('skills/agentic-cleanup/')) { return Join-Path $repoRoot ($InstallPath -replace '/', '\') }
     if ($InstallPath.StartsWith('scripts/windows/cleanup/')) {
         return Join-Path $repoRoot ($InstallPath -replace '/', '\')
     }
@@ -39,16 +39,18 @@ Assert-True ($renderedCommand.Contains($sampleArguments)) 'OpenCode rendering fo
 
 $skillText = [IO.File]::ReadAllText((Join-Path $repoRoot 'skills\agentic-cleanup\SKILL.md'))
 Assert-True ($skillText.Contains('name: agentic-cleanup')) 'Cleanup skill declares its discoverable name'
-Assert-True ($skillText.Contains('# Developer Workstation Disk Cleanup')) 'Cleanup skill owns the full workflow'
-Assert-True ($skillText.Contains('manifest_paths=(')) 'Cleanup skill retains the installed integrity preamble'
+Assert-True ($skillText.Contains('# Safe Workstation Cleanup')) 'Cleanup skill owns the short governing workflow'
+Assert-True (($skillText -split "`n").Count -lt 250) 'Cleanup entry point stays lean'
+$reference = [IO.File]::ReadAllText((Join-Path $repoRoot 'skills\agentic-cleanup\references\workflow.md'))
+Assert-True ($skillText.Contains('references/workflow.md') -and $reference.Contains('manifest_paths=(')) 'On-demand reference retains the installed integrity preamble'
 
 $entries = foreach ($line in Get-Content -LiteralPath $manifestPath) {
     if ($line -notmatch '^([0-9a-f]{64})  (.+)$') { throw "Invalid manifest line: $line" }
     [ordered]@{ digest = $Matches[1]; installPath = $Matches[2]; sourcePath = Resolve-Source $Matches[2] }
 }
 
-Assert-True (@($entries).Count -eq 27) 'Install manifest lists every command, skill, helper, contract, schema, and policy file'
-Assert-True (@($entries.installPath | Sort-Object -Unique).Count -eq 27) 'Install manifest inventory has no duplicate paths'
+Assert-True (@($entries).Count -eq 33) 'Install manifest lists every command, skill, reference, helper, contract, schema, and policy file'
+Assert-True (@($entries.installPath | Sort-Object -Unique).Count -eq 33) 'Install manifest inventory has no duplicate paths'
 foreach ($entry in $entries) {
     Assert-True (Test-Path -LiteralPath $entry.sourcePath) "Manifest source exists: $($entry.installPath)"
     Assert-True ((Get-NormalizedDigest $entry.sourcePath) -eq $entry.digest) "Manifest digest matches: $($entry.installPath)"

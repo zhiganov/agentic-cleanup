@@ -2,6 +2,10 @@
 
 Safe disk cleanup for coding agents. One `/cleanup` command scans a developer workstation for reclaimable disk space, reports what it finds, and deletes only the categories the user selects.
 
+This repository is the sole source for the command, skill, helpers, contracts,
+tests and installers. Installed runtime copies are release consumers; there is
+no companion implementation or synchronization dependency in a config repository.
+
 ## Install
 
 macOS/Linux:
@@ -66,6 +70,29 @@ The outlier pass is read-only evidence. Each unexpected hotspot is classified as
 reclaimable, close-application-first, human-review, system-managed/protected, or
 live before it can be offered. Unknown paths are never automatic deletion
 targets, and expanded-audit candidates require explicit per-item selection.
+
+Largest files can be reported independently with `find_outliers.py --files
+--json`: folder grouping and depth limits no longer hide nested individual files.
+Without a fresh index, `file_audit.py` audits only explicitly selected known
+folders or exact roots, resolving Windows redirection and reporting overlaps,
+links, inaccessible paths, budget limits and top-N omissions. It never opens file
+contents, hydrates cloud placeholders, relocates files or deletes personal data.
+Traversal holds no-follow directory scopes, including ancestors, so replacing a
+directory cannot redirect metadata reads. Busy/unpinnable paths are disclosed as
+incomplete coverage rather than followed through a weaker fallback.
+
+The skill now has a short governing entry point and on-demand category recipes.
+Reports distinguish logical size, local allocation, unknown uniquely reclaimable
+storage and observed signed net disk change. The default selectable threshold is
+50 MiB and can be changed without weakening deletion boundaries.
+
+Windows cache-only plans preserve `.next/cache` roots and sibling build output.
+Exact absent selections are validated no-ops. Old Windows logs use a committed
+exact-file worker instead of wildcard deletion, protecting current/newest,
+changed, fresh, linked and locked files. Supported DISM runs use `/NoRestart`,
+conservative servicing guards and bounded natural-exit waits, never `/ResetBase`
+or an automatic second pass. Elevated mutation requires an already elevated
+trusted process; missing worker output is not interpreted as declined UAC.
 
 ## Windows helper scripts
 

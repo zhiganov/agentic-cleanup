@@ -6,6 +6,7 @@ from pathlib import Path
 
 repo_root = Path(__file__).resolve().parents[3]
 skill = (repo_root / "skills" / "agentic-cleanup" / "SKILL.md").read_text(encoding="utf-8")
+skill += (repo_root / "skills" / "agentic-cleanup" / "references" / "workflow.md").read_text(encoding="utf-8")
 
 
 def require(text: str, message: str) -> None:

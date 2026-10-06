@@ -14,6 +14,9 @@ execution, and results:
   ownership, and installer activity.
 - `render-scan.ps1` renders persisted evidence without substituting logical
   bytes for an unknown reclaim estimate.
+- `render-result.ps1` keeps logical scope changes separate from signed net disk
+  changes, per-operation snapshots, and unknown unique recovery. Result byte
+  measurements may be null when metadata is unavailable; zero means measured zero.
 - `schemas/` contains the versioned scan, plan, and result contracts.
 
 Windows producers and executors live under `scripts/windows/cleanup/`:
@@ -31,6 +34,12 @@ Windows producers and executors live under `scripts/windows/cleanup/`:
   require an already elevated trusted process or return `manual-required`.
 - `live_paths.ps1 -JsonSummary` reports Claude Code and OpenCode runtime census
   evidence without inferring exact OpenCode session ownership.
+- `scan.ps1 -BuildCacheOnly` and `build-cache-contents` policy retain exact
+  `.next/cache` roots and siblings. Absent selected build/dependency targets are
+  refreshed no-ops, not an excuse to drop assertion buckets or broaden selections.
+- `file_audit.py`, `path_evidence.ps1`, and `maintenance.ps1` provide bounded
+  metadata discovery, shared completeness checks, and conservative old-log/DISM
+  handling. They never authorize a real cleanup as part of development tests.
 
 ## Verification
 
@@ -50,3 +59,10 @@ pwsh -NoProfile -File scripts/cleanup/tests/test-executor.ps1
 
 All tests use fixtures or disposable temp directories. They never clean the
 workstation or request elevation.
+
+New focused regressions (do not replace a requested verification budget with an
+automatic full suite): `test-file-audit.py`, `test-build-cache.ps1`, and
+`test-maintenance.ps1`. These cover redirected/nested files, placeholders,
+hardlinks, allocation failures, links, coverage/top-N, disappearing caches,
+fresh writes, retained siblings, signed disk deltas, log locks, servicing waits,
+analysis freshness, and worker outcome interpretation.

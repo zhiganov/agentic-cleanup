@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
+import sys
 import ntpath
 from dataclasses import dataclass, field
 from pathlib import PureWindowsPath
@@ -47,6 +49,8 @@ class Entry:
     path: str
     size: int
     children: list["Entry"] = field(default_factory=list)
+    allocated: int | None = None
+    declared_directory: bool | None = None
 
     @property
     def key(self) -> str:
@@ -58,7 +62,7 @@ class Entry:
 
     @property
     def is_directory(self) -> bool:
-        return bool(self.children)
+        return self.declared_directory is True or bool(self.children)
 
 
 def canonical_windows_path(raw: str) -> str:
@@ -83,13 +87,20 @@ def parent_key(path: str) -> str | None:
 
 def load_entries(csv_path: str) -> dict[str, Entry]:
     entries: dict[str, Entry] = {}
+    allocated_column = None
+    attributes_column = None
     with open(csv_path, encoding="utf-8-sig", newline="") as handle:
         reader = csv.reader(handle)
         for row in reader:
             if len(row) < 2:
                 continue
             path = canonical_windows_path(row[0])
-            if not path or path.casefold() in {"file name", "filename"}:
+            if path.casefold() in {"file name", "filename"}:
+                columns = [cell.strip().casefold() for cell in row]
+                allocated_column = columns.index("allocated") if "allocated" in columns else None
+                attributes_column = columns.index("attributes") if "attributes" in columns else None
+                continue
+            if not path:
                 continue
             try:
                 size = int(row[1])
@@ -98,9 +109,22 @@ def load_entries(csv_path: str) -> dict[str, Entry]:
             if ntpath.basename(path.rstrip("\\")).casefold() in PROTECTED_BASENAMES:
                 continue
             key = path.casefold()
+            allocated = None
+            if allocated_column is not None and len(row) > allocated_column:
+                try:
+                    value = int(row[allocated_column])
+                    allocated = value if value >= 0 else None
+                except ValueError:
+                    pass
+            directory = True if row[0].endswith(("\\", "/")) else None
+            if attributes_column is not None and len(row) > attributes_column and row[attributes_column]:
+                try:
+                    directory = bool(int(row[attributes_column]) & 0x10)
+                except ValueError:
+                    directory = "D" in row[attributes_column].upper()
             existing = entries.get(key)
             if existing is None or size > existing.size:
-                entries[key] = Entry(path=path, size=size)
+                entries[key] = Entry(path=path, size=size, allocated=allocated, declared_directory=directory)
 
     for entry in entries.values():
         parent = entries.get(parent_key(entry.path) or "")
@@ -160,6 +184,8 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=100)
     parser.add_argument("--dominance", type=float, default=0.80)
     parser.add_argument("--max-depth", type=int, default=9)
+    parser.add_argument("--files", action="store_true", help="Independent largest-file report; no folder grouping or depth cap")
+    parser.add_argument("--json", action="store_true", help="Labeled accounting and explicit top-N coverage")
     args = parser.parse_args()
     if args.minimum_mb <= 0 or args.limit <= 0:
         parser.error("--minimum-mb and --limit must be positive")
@@ -167,15 +193,27 @@ def main() -> int:
         parser.error("--dominance must be greater than 0 and at most 1")
 
     entries = load_entries(args.csv_path)
-    hotspots = select_hotspots(
+    hotspots = sorted((entry for entry in entries.values() if not entry.is_directory and entry.size >= args.minimum_mb * MIB),
+                      key=lambda entry: (-entry.size, entry.key)) if args.files else select_hotspots(
         entries,
         minimum_bytes=args.minimum_mb * MIB,
         dominance=args.dominance,
         max_depth=args.max_depth,
     )
+    if args.json:
+        print(json.dumps({"schemaVersion": "1.0", "purpose": "read-only-file-discovery" if args.files else "read-only-folder-hotspots",
+                          "measurementMethod": "wiztree-index", "coverage": "indexed-export-not-refreshed",
+                          "matchingEntries": len(hotspots), "omittedMatches": max(0, len(hotspots) - args.limit),
+                          "estimatedReclaimableBytes": None, "identityDeduplication": "unavailable-in-export",
+                          "entries": [{"path": e.path, "kind": "directory" if e.is_directory else "file",
+                                       "logicalBytes": e.size, "allocatedBytes": e.allocated,
+                                       "allocationMethod": "wiztree-allocated-column" if e.allocated is not None else "unknown",
+                                       "estimatedReclaimableBytes": None} for e in hotspots[:args.limit]]}, indent=2))
+        return 0
     for entry in hotspots[: args.limit]:
         kind = "directory" if entry.is_directory else "file"
         print(f"{kind}|{entry.size // MIB}|{entry.path}")
+    print(f"coverage: matched={len(hotspots)} omitted={max(0, len(hotspots) - args.limit)}; sizes=logical-MiB; reclaim=unknown", file=sys.stderr)
     return 0
 
 

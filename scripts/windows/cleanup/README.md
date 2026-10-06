@@ -1,6 +1,6 @@
 # /cleanup helper scripts (Windows)
 
-Committed helpers for the `/cleanup` skill (`claude-config/skills/agentic-cleanup/SKILL.md`).
+Committed helpers for this repository's `/cleanup` skill (`skills/agentic-cleanup/SKILL.md`). This repository is the sole source; installed copies are release consumers, not a second implementation.
 
 **Why files, not inline heredocs.** The skill used to instruct authoring these on
 every run by pasting code into bash heredocs. On Windows Git Bash that breaks twice
@@ -19,6 +19,11 @@ hardcode a `/tmp/...` path inside a script.
 | `wt_lookup.py` | `printf '%s\n' '<winpath>' … \| python wt_lookup.py <csv>` | Size lookup: stdin paths → `sizeMB\|path` |
 | `find_targets.py` | `python find_targets.py <csv> <workspace_root>` | Top-level `node_modules` (≥10 MB) + `.next`/`.turbo`/`.parcel-cache`/`.vite` dirs |
 | `find_outliers.py` | `python find_outliers.py <csv> [--minimum-mb 100] [--limit 100]` | Read-only, non-overlapping whole-drive hotspots for classification; never emits `hiberfil.sys` |
+| `find_outliers.py --files --json` | Add to the CSV command | Independent nested-file report, allocated-column evidence, unknown recovery, and top-N omissions |
+| `file_audit.py` | `python file_audit.py --known-folder Documents --output <new.json>` | Bounded metadata-only selected-folder audit, redirection/overlap/identity handling; no delete mode |
+| `path_evidence.ps1` | Dot-source from scanner/validator | Complete bounded logical-size/freshness metadata with descendant link veto |
+| `maintenance.ps1` | `pwsh -File maintenance.ps1 -Action ScanLogs -OutputPath <new.json>` | Exact old log evidence; approved guarded CleanLogs/Components and supported Analyze in an already elevated trusted worker |
+| `windows_maintenance.ps1` | Dot-source from committed worker | Log selection/locks, bounded servicing waits, fresh analysis and explicit worker outcome contracts |
 | `diskspace.ps1` | `powershell.exe -NoProfile -File diskspace.ps1 [C]` | `free total pct` in GB (default = system drive) |
 | `run_wiztree.ps1` | `powershell.exe -NoProfile -File run_wiztree.ps1 -WizTree <exe> -OutCsv <winpath>` | Elevated WizTree MFT export (one UAC; `/admin=0` times out) |
 | `squirrel.ps1` | `powershell.exe -NoProfile -File squirrel.ps1` | Discover Squirrel old `app-*` versions |
@@ -35,6 +40,51 @@ hardcode a `/tmp/...` path inside a script.
 When `scan.ps1` uses a custom `HomePath`, `ClaudeConfigPath`, or
 `OpenCodeConfigPath`, pass the same values to `execute-plan.ps1`. The executor
 forwards that discovery context to initial and per-operation validation.
+
+`scan.ps1 -BuildCacheOnly` offers only exact `.next/cache` contents, with a
+separate allowlisted policy that retains its root and sibling build output.
+`execute-plan.ps1` records a selected absent build/dependency path as an explicit
+validated no-op rather than substituting another target. Empty plans still fail.
+
+## Measurement and maintenance constraints
+
+Positive logical sizes are not estimated unique recovery. Structured scans keep
+that estimate null until there is evidence for allocated extents and link
+ownership. `render-result.ps1` separates logical scope change, per-operation net
+disk change and overall signed net change; unavailable measurements remain null.
+
+File audits pin the entire directory ancestry from the volume root down and keep
+parent scopes alive while inspecting descendants. Windows directory handles use
+LIST_DIRECTORY + READ_ATTRIBUTES, OPEN_REPARSE_POINT and read-only sharing;
+READ_ATTRIBUTES alone does **not** enforce replacement/write exclusion. Busy,
+linked or unpinnable scopes are reported as incomplete, never retried through an
+unsafe pathname walk. Handles are released on budget stops and errors. Unix uses
+parent-relative O_NOFOLLOW directory descriptors for enumeration and stat.
+
+Windows `DirEntry.stat()` may omit identity information. Ordinary file metadata
+and allocation therefore come from one attribute-only, no-follow file handle;
+even if the leaf name changes, allocation never reopens that name. Cloud recall
+flags suppress file-handle/allocation probes. Ordinary files use FILE_STANDARD_INFO,
+avoiding logical-size rounding errors for resident NTFS data; sparse/compressed
+files use FILE_COMPRESSION_INFO on the same handle. Neither number proves that
+deleting one hardlink will release the underlying storage.
+Deduplication requires full FILE_ID_INFO (128-bit identifier and volume identity);
+the legacy 64-bit file index can collide on ReFS. An unavailable full identity is
+explicitly skipped rather than silently dropping unrelated files as hardlinks.
+See [FILE_STANDARD_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_standard_info)
+and [FILE_COMPRESSION_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_compression_info).
+The [CreateFileW sharing contract](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew)
+excludes attribute-only opens from sharing checks. Keep native replacement/write
+sharing regressions; a mock that only checks flags cannot establish the boundary.
+
+Log evidence is at most one hour old, exact-file only and revalidated before
+deletion; current/newest, fresh, changed, linked and locked files are retained.
+Servicing guards preserve pending reboot/update/installer state and wait at most
+120 seconds without killing workers. A DISM analysis is reusable for 15 minutes
+on the same machine only if current guards still pass. Worker results are private
+and allowlisted; a native/PowerShell zero does not override an incomplete result.
+Timestamp freshness compares DateTimeOffset.UtcDateTime, not a locale-shifted
+DateTime cast. Supported cleanup uses /NoRestart and never /ResetBase.
 
 Automatic UAC launching is intentionally not part of the first structured
 slice. Elevated operations use the same plan and validator but execute only
