@@ -55,6 +55,30 @@ This entry point governs safety, selection, accounting, and newer helper usage.
 - `--dry-run` stops after the report. `--structured-preview` uses committed
   `scan.ps1` plus `render-scan.ps1` (PowerShell 7), then stops without a plan.
 
+### First-scan runtime and cache inventory
+
+For ordinary cleanup, including `--dry-run`, inventory superseded tool runtimes
+and every generation under each discovered store root before the first report.
+This is initial discovery, not follow-up work gated on the user questioning the
+result. Read **First-scan runtime and cache inventory** in the reference for the
+bounded probes and classification rules. This gate applies to ordinary cleanup;
+narrow personal audits and `--structured-preview` keep their declared scope.
+
+- Inspect versioned descendants of runtime parents rather than hiding the whole
+  parent as protected. Known examples are Codex release families, Claude binaries
+  and legacy pnpm stores alongside the active generation. Do not recursively
+  search the user profile to find additional roots.
+- Resolve current/newest selectors, pinned versions, process/MCP consumers and
+  update activity. Read selector metadata without following aliases; an older
+  version or an inactive store path is not by itself proof of non-use.
+- Use committed metadata helpers to check each exact candidate's allocation,
+  file identity and hardlink sharing. Disclose incomplete ownership checks and
+  unknown recovery; classify uncertain scopes as human review, not deletion
+  options. Protection limits deletion, not read-only discovery.
+- Include qualified old scopes in the initial report with exact paths, preserved
+  versions, consequences and selection boundaries. Newly audited runtimes and
+  legacy stores require explicit per-item selection, not inclusion in `all`.
+
 ### Independent largest-file discovery (Windows)
 
 Folder hotspots and individual files are separate reports. A folder grouping,

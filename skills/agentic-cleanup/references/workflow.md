@@ -8,6 +8,7 @@ examples if they differ.
 
 - Helper scripts / integrity and workspace resolution
 - Step 1–2.5: platform detection and indexed discovery
+- First-scan runtime and cache inventory (before the ordinary report)
 - Step 3: Cross-platform categories
 - Step 3: Windows-only categories
 - Step 3: Unix categories (Linux + macOS)
@@ -359,6 +360,68 @@ Scan all applicable categories below **in a single batch of parallel tool calls*
 
 ---
 
+### First-scan runtime and cache inventory
+
+For ordinary cleanup and `--dry-run`, complete this bounded inventory before the
+first report, alongside the category batch. A short cache table is not a complete
+scan when material versioned installations or legacy stores remain unexamined.
+Keep narrow personal audits and `--structured-preview` within their stated scope.
+
+**Find siblings, not just active paths.** Use indexed evidence to identify
+versioned tool installations and cache-store roots, then enumerate immediate
+release families and store generations. Without an index, probe known exact tool
+roots and metadata from installed managers; do not recursively search the user
+profile. For example:
+
+- On Windows, probe `~/.codex/packages/<family>/releases` and inspect the family's
+  `current` and `auto-update-version` selectors. Inspect every immediate family,
+  not just `standalone`; daemon and standalone installations can select different
+  current versions. Read selector metadata without traversing aliases, then
+  measure only exact physical release directories within the same family.
+- Probe `~/.local/share/claude/versions` through the existing Claude recipe;
+  releases can be executable files rather than directories.
+- For pnpm, enumerate the store-generation siblings described below rather than
+  reporting only `pnpm store path`. Apply the same principle to other discovered
+  managers with versioned stores. Do not assume the Windows runtime layouts exist
+  on Unix; use the index or that platform's installed-manager metadata.
+
+**Establish the owner before offering removal.** Keep current, newest, pinned and
+live versions, even when a selector points to an older installed version. Compare
+versions semantically, not by directory timestamp or lexical order. Check known
+user/project configuration, registered MCP ownership, fresh process paths and the
+owner's installer/update lock. A persistent lock file alone does not prove an
+update is active. If selector parsing, locking or ownership checks are unavailable,
+report the exact finding as human-review, not a cleanup option. Do not run a
+launcher that can auto-update/install merely to learn its version; prefer
+allowlisted control metadata. Never print configuration bodies or command lines.
+
+**Measure exact scopes.** Use indexed logical/allocation evidence for discovery.
+For Windows candidates, use committed `file_audit.py --root <exact-release-or-store>`
+or its metadata API to inspect file identities and hardlink counts without reading
+file data. Supply only physical roots, not `current` aliases. Preserve current
+selector roots and siblings; disclose budgets, skipped paths and unknown shared
+allocation. On other platforms use equivalent bounded, no-follow metadata checks.
+Size or lack of a process reference alone is not proof that removal is safe.
+
+**Report in the first pass.** Show qualified exact runtime releases and legacy
+stores in **Expanded audit**, with family/generation, current/newest versions kept,
+logical and allocated sizes, sharing/ownership evidence and the re-download or
+rollback consequence. These items are not included in `all`; require explicit
+per-item selection. Existing maintained categories retain their existing selection
+rules. Unknown, live and OS/vendor-managed installations remain informational;
+this inventory does not authorize uninstalling tools or deleting system runtimes.
+
+**Refresh only approved paths.** Immediately before an approved operation, repeat
+the selector, newest/pinned version, ownership, update-lock, link and live-path
+checks. Preserve changed/fresh or newly active releases. For legacy Windows lists,
+build the exact list first, capture `live_paths.ps1` in a separate invocation that
+does not name deletion targets, then run `assert_list.py` with required buckets
+and current/newest/sibling exclusions before the committed removal worker.
+Measure free space immediately before each operation and verify retained selectors
+and versions afterward. Never replace an absent approved path with another version.
+
+---
+
 ### Cross-platform categories
 
 These run on every OS. Each category's measurement and cleanup logic branches on platform internally.
@@ -412,9 +475,28 @@ Collect: project name, size, full path.
 
 **pnpm:**
 - Check: `command -v pnpm`
-- Get store path: `pnpm store path`
-- Measure the store directory size (WizTree or fallback)
-- Clean command: `pnpm store prune`
+- Resolve the active store with `pnpm store path`, using a context that does not
+  trigger project-pinned tool installation. Inventory every immediate versioned
+  store under each discovered store root (for example `v3` alongside `v10`), not
+  just the generation returned by the command. Probe additional roots only when
+  identified by the index or installed-manager metadata; disclose coverage limits.
+- A different active path does not establish that a sibling generation is unused.
+  Check project `packageManager` pins, `.modules.yaml` store references, explicit
+  store configuration, registered consumers, processes and file sharing. Read only
+  allowlisted fields and state directory/depth/time bounds and skipped links.
+- Measure each generation separately (WizTree or bounded metadata fallback).
+  Distinguish logical bytes, allocated bytes and estimated unique recovery;
+  inspect hardlinks before treating cache size as recoverable space. Never propose
+  removing linked project files or active dependencies to improve the estimate.
+- Use `pnpm store prune` for the active store. It does not clean a legacy sibling;
+  do not claim otherwise or redirect the current pnpm version into an older
+  format without verified compatibility. See https://pnpm.io/cli/store.
+- Qualified legacy generations belong in Expanded audit with exact paths and
+  explicit per-item selection. On approval, clean contents only of the exact old
+  generation, preserve its root, active store and installed dependencies, and
+  refresh ownership/liveness/sharing first. Warn that future installs may need to
+  re-download packages and offline cache reuse will be lost. Uncertain generations
+  remain human-review rather than deletion options.
 
 **yarn:**
 - Check: `command -v yarn`
@@ -462,10 +544,11 @@ Also scan these bounded Claude-generated targets:
   before deletion. These contain diagnostics, not conversations or settings.
 - **Superseded Claude binaries:** `~/.local/share/claude/versions/<semver>`.
   Resolve the running version with `claude --version` and require an exact
-  matching version directory. Keep that exact directory and also keep the newest
-  installed version. If the command is missing, parsing fails, or no directory
-  matches, skip this target entirely. Apply the live-path veto to each older
-  directory before reporting and immediately before deletion.
+  matching version entry (file or directory). Keep that exact entry and also keep
+  the newest installed version. If the command is missing, parsing fails, or no
+  entry matches, report the bounded inventory as human-review rather than hiding
+  it or offering removal. Apply the live-path veto to each older entry before
+  reporting and immediately before deletion.
 
 **SAFETY — NEVER touch any of the following:**
 - `~/.claude/projects/*/memory/` (persistent memories)
@@ -1359,7 +1442,7 @@ distinct evidence. An empty/missing result does not prove elevation was declined
 | Squirrel old versions | `rm -rf <each old app-* directory path>` |
 | node_modules (inactive) | `rm -rf <each inactive project>/node_modules` |
 | npm cache | `npm cache clean --force` for `_cacache`; `scrub.ps1`/`find -delete` only for exact stale `_npx` children after age, canonical-parent, and refreshed liveness validation |
-| pnpm cache | `pnpm store prune` |
+| pnpm cache | `pnpm store prune` for the active store; separately approved exact legacy-generation contents only after refreshed ownership/liveness/sharing checks; never substitute the active store or project dependencies |
 | yarn v1 cache | `yarn cache clean` |
 | yarn v2+ cache | `yarn cache clean --all` |
 | pip cache | `pip cache purge` (or `pip3 cache purge`) |
