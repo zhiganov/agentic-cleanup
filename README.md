@@ -71,6 +71,10 @@ reclaimable, close-application-first, human-review, system-managed/protected, or
 live before it can be offered. Unknown paths are never automatic deletion
 targets, and expanded-audit candidates require explicit per-item selection.
 
+Folder-hotspot discovery retains large files at drive roots and shallow directory
+levels. A protected system file appearing in this read-only evidence is not a
+cleanup target.
+
 Largest files can be reported independently with `find_outliers.py --files
 --json`: folder grouping and depth limits no longer hide nested individual files.
 Without a fresh index, `file_audit.py` audits only explicitly selected known
