@@ -158,7 +158,10 @@ def select_hotspots(
             (child for child in entry.children if child.size >= minimum_bytes),
             key=lambda item: (-item.size, item.key),
         )
-        if is_drive_root(entry.path) or path_depth(entry.path) <= 3 or entry.name.casefold() == ".cache":
+        # Expand wrapper directories, but never discard files at those depths.
+        if is_drive_root(entry.path) or (
+            entry.is_directory and (path_depth(entry.path) <= 3 or entry.name.casefold() == ".cache")
+        ):
             for child in children:
                 walk(child)
             return

@@ -71,6 +71,16 @@ reclaimable, close-application-first, human-review, system-managed/protected, or
 live before it can be offered. Unknown paths are never automatic deletion
 targets, and expanded-audit candidates require explicit per-item selection.
 
+Folder-hotspot discovery retains large files at drive roots and shallow directory
+levels. A protected system file appearing in this read-only evidence is not a
+cleanup target.
+
+The initial ordinary scan also inventories superseded tool releases and all
+generations under discovered cache-store roots, rather than stopping at the
+active version/store. Current, newest, pinned and live installations stay
+protected. Qualified older Codex releases and legacy pnpm generations appear as
+exact, separately selectable expanded-audit items; they are never part of `all`.
+
 Largest files can be reported independently with `find_outliers.py --files
 --json`: folder grouping and depth limits no longer hide nested individual files.
 Without a fresh index, `file_audit.py` audits only explicitly selected known
