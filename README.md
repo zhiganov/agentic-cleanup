@@ -118,7 +118,7 @@ The skill detects the OS at runtime and only scans categories that apply.
 |----------|--------|-------|
 | Windows (MSYS2/Git Bash) | **Validated** | All Windows-only categories including elevated cleanup, WizTree fast-scan, AppData remnants, VS / SDK orphans. |
 | Linux — Fedora (dnf/rpm) | **Validated** | Tested with the orphan scan's 4-layer filter chain (allowlist + active-binary + 30-day mtime + token-boundary package match). |
-| Linux — Debian/Ubuntu (apt) | Written, **not exercised** | Detection and clean commands present but not run against a real Debian system yet. |
+| Linux — Debian/Ubuntu (apt) | Scan exercised, **clean not exercised** | Dry-run scan run on Ubuntu 26.04 under WSL2 (2026-10-26): categories detected and measured as expected. No clean commands run yet. Under WSL2, `df /` reports the virtual disk's ceiling (default 1 TB), not the host drive's free space. |
 | Linux — Arch (pacman), openSUSE (zypper) | Written, **not exercised** | Same as Debian. |
 | macOS | Written, **not exercised** end-to-end | All categories present: App Caches, Trash, Dev Tool Caches, Homebrew/MacPorts cache, Chromium-family browser caches under `~/Library/Application Support/`. Symmetric to Linux but hasn't been run on a real Mac. |
 
