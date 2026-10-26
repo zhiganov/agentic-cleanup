@@ -14,10 +14,16 @@ def normalized(path):
     return path.read_text(encoding="utf-8-sig").replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
 
 
+def inventory_key(path):
+    # Case-insensitive, part by part: the order Windows paths sort in, applied on
+    # every platform so the manifest is identical wherever it is generated.
+    return tuple(part.lower() for part in path.parts)
+
+
 def release_inventory(publication):
     paths = ["cleanup.md", "skills/agentic-cleanup/SKILL.md", "skills/agentic-cleanup/references/workflow.md"]
     for prefix in ("scripts/windows/cleanup", "scripts/cleanup"):
-        for file in sorted((publication / prefix).rglob("*")):
+        for file in sorted((publication / prefix).rglob("*"), key=inventory_key):
             relative = file.relative_to(publication).as_posix()
             if file.is_file() and file.suffix in (".py", ".ps1", ".psm1", ".md", ".json") and not any(
                     part in ("tests", "fixtures", "__pycache__") for part in file.relative_to(publication / prefix).parts):
