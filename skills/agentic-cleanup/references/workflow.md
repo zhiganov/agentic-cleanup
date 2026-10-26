@@ -43,7 +43,7 @@ The skill detects the OS at runtime and only scans categories that apply. Covera
 |----------|--------|-------|
 | Windows (MSYS2/Git Bash) | **Validated** | Original development target; 12 Windows-only categories plus the cross-platform set, including elevated cleanup, WizTree fast-scan integration, AppData remnants, VS / SDK orphans, Electron app caches, and Squirrel pruning. |
 | Linux — Fedora (dnf/rpm) | **Validated** | Tested on Fedora 44 with the orphan scan's 4-layer filter chain (allowlist + active-binary + 30-day mtime + token-boundary package match). |
-| Linux — Debian/Ubuntu (apt) | Written, **not exercised** | Detection and clean commands are present but haven't been run against a real Debian system. Pull requests with confirmation welcome. |
+| Linux — Debian/Ubuntu (apt) | Scan exercised, **clean not exercised** | Dry-run scan run on Ubuntu 26.04 under WSL2 (2026-10-26): detection and measurement worked. Clean commands have not been run. **Under WSL2, `df /` reports the virtual disk's ceiling (default 1 TB), not free space on the Windows host drive** — report that the real constraint is the host drive, and that space freed inside WSL2 returns to the host only after the `ext4.vhdx` is compacted. |
 | Linux — Arch (pacman), openSUSE (zypper) | Written, **not exercised** | Same as Debian — logic exists, untested. |
 | macOS | Written, **not exercised end-to-end** | All categories present: App Caches, Trash, Dev Tool Caches, Homebrew/MacPorts pkg cache, Chromium-family browser caches under `~/Library/Application Support/`. Logic is symmetric to Linux but hasn't been run against a real Mac in this revision. |
 
