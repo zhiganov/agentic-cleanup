@@ -309,10 +309,13 @@ class MacDiscovery(unittest.TestCase):
                                   capture_output=True, text=True, timeout=10)
         self.assertEqual(verified.returncode, 0, verified.stderr)
         self.file("Library/Caches/fixture/a.bin", b"x" * (1024 * 1024 + 1))
+        for index in range(600):
+            self.file(f"Library/pnpm/store/v3/{index:04d}.bin", b"")
         output = self.root / "scan.json"
         command = [sys.executable, str(payload / "scripts/cleanup/macos_scan.py"), "--home", str(self.home),
                    "--cwd", str(self.work), "--applications", str(self.apps), "--system-config-root", str(self.root / "managed"),
-                   "--no-process-probe", "--no-tool-probe", "--no-space-probe", "--minimum-mib", "1", "--output", str(output)]
+                   "--no-process-probe", "--no-tool-probe", "--no-space-probe", "--minimum-mib", "1",
+                   "--max-entries", "300", "--output", str(output)]
         result = subprocess.run(command, env=env, capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
         report = json.loads(output.read_text())
@@ -321,6 +324,12 @@ class MacDiscovery(unittest.TestCase):
         self.assertIn("tool-native-metadata-probing-disabled", report["warnings"])
         self.assertEqual(stat.S_IMODE(output.stat().st_mode), 0o600)
         self.assertTrue(report["items"])
+        self.assertEqual(report["measurementScheduling"]["method"], "remaining-budget-share-single-pass")
+        self.assertLessEqual(report["entriesVisited"], 300)
+        store = self.item(report, self.home / "Library/pnpm/store/v3")
+        self.assertEqual(store["coverage"], "root-entry-limit")
+        self.assertIsNone(store["logicalBytes"])
+        self.assertEqual(self.item(report, self.home / "Library/Caches/fixture")["coverage"], "complete")
         before = output.read_bytes()
         repeated = subprocess.run(command, env=env, capture_output=True, text=True, timeout=10)
         self.assertNotEqual(repeated.returncode, 0)

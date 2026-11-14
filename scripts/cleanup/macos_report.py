@@ -274,6 +274,8 @@ def render(report, before=None):
                       "Limits: " + safe(json.dumps(report["limits"], sort_keys=True)),
                       "Status counts: " + safe(json.dumps(report["coverageSummary"]["statusCounts"], sort_keys=True)),
                       "Skip counts: " + safe(json.dumps(report["coverageSummary"]["skipCounts"], sort_keys=True)),
+                      "Measurement scheduling: " + safe(json.dumps(report.get("measurementScheduling",
+                          {"method": "legacy-sequential"}), sort_keys=True)),
                       "Workspace descent exclusions: " + safe(", ".join(report["workspaceDescentExclusions"])),
                       f"Top-N omitted matches: {report['omittedMatches']}; below-threshold complete targets: {report['belowThresholdTargets']}."])
         for stage in report["discoveryStages"]:
@@ -292,6 +294,9 @@ def render(report, before=None):
                          f"unknown allocation files {item['unknownAllocationFiles']}; clone/snapshot sharing unknown. "
                          f"Observed partial subtotals: logical {size(item['observedLogicalBytes'])}, "
                          f"known allocation {size(item['observedAllocatedKnownBytes'])}.")
+            if "measurementBudget" in item:
+                lines.append("  Measurement attempted: " + str(item["measurementAttempted"]) +
+                             "; assigned/used budget: " + safe(json.dumps(item["measurementBudget"], sort_keys=True)))
         totals = report["totals"]
         lines.append(f"Identity-deduplicated observed subtotals (including omitted rows): logical {size(totals['observedLogicalBytes'])}; "
                      f"known allocation {size(totals['observedAllocatedKnownBytes'])}; unknown allocation files {totals['unknownAllocationFiles']}.")
