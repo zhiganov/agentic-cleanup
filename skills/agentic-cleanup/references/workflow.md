@@ -1050,6 +1050,11 @@ Open or locked files can still be unlinked on Unix; do not rely on locks or an
 expected permission error to protect a running app. Do not close apps, kill
 holders or change permissions to make a cache deletable.
 
+Homebrew's resolved cache root and its descendants belong to the manual-only
+Homebrew report below, not a second selectable App Caches entry. If ownership of
+a default-looking or legacy Homebrew directory is unresolved, keep it review-only;
+do not assume it is the active cache or remove it through a generic cache category.
+
 **Self-protection:** On Linux/macOS, the currently-running Claude Code session
 caches state in `~/.cache/claude-cli-nodejs/` or the platform equivalent. Treat
 the active runtime cache as a live dependency, not a selectable app-cache target.
@@ -1278,12 +1283,111 @@ Collect: browser names, total size per browser, paths.
 **Skip if platform is not macos.** macOS equivalent of the Linux `/var/cache/dnf` etc. category. Detect by checking which package manager is installed.
 
 **Homebrew:**
-- Detection: `command -v brew`
-- Cache path: `$(brew --cache)` (typically `~/Library/Caches/Homebrew/`)
-- Measure: `du -sm "$(brew --cache)" 2>/dev/null | cut -f1`
-- Also probe: `~/Library/Caches/Homebrew/downloads` for old bottle downloads.
-- Skip if size < 100 MB.
-- Clean (Step 6): `brew cleanup -s` — removes outdated downloads + cache for older formula versions. Add `--prune=all` to drop everything (more aggressive).
+
+This is an **informational/manual-only** report, not an automatically executable
+cache-cleanup category. Exclude it from the selectable category table and `all`.
+[Homebrew's cleanup command](https://docs.brew.sh/Manpage#cleanup-options-formulacask-)
+can remove old installed formula versions, stale locks and other maintenance
+targets as well as downloads. Scrubbing does not make that operation cache-only,
+and downloads for installed formulae/casks can be retained. Cache usage is not an
+expected cleanup recovery amount.
+
+**Resolve and measure the actual cache, not the installation prefix.** The
+metadata command honors `HOMEBREW_CACHE`; do not override that variable or assume
+the default `~/Library/Caches/Homebrew`. Use this read-only probe with a bounded
+tool invocation (45 seconds maximum). Links, invalid roots, inaccessible scopes,
+nonzero metadata/measurement results and timeouts remain unknown/review-only,
+not a fallback to the default path. Do not inspect a separate default `downloads`
+directory when the configured cache is elsewhere. Descendant sizes must not be
+added to a measured parent total.
+
+```bash
+# Homebrew cache discovery (read-only)
+set -eu
+if ! command -v brew >/dev/null 2>&1; then
+  printf 'Homebrew: not installed; skipped\n'
+  exit 0
+fi
+printf 'Homebrew: manual-only; selectable=false; excluded from all\n'
+printf 'Reclaimable bytes: unknown (cache usage is not cleanup scope)\n'
+cache_root="$(HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ANALYTICS=1 brew --cache)" || {
+  printf 'Cache root: unknown; metadata failed\n' >&2
+  exit 1
+}
+case "$cache_root" in
+  /*) ;;
+  *) printf 'Cache root: unknown; expected an absolute path\n' >&2; exit 1 ;;
+esac
+cache_root="${cache_root%/}"
+case "$cache_root" in
+  ''|/|"$HOME"|*/../*|*/..|*/./*|*/.|*//*|*$'\n'*|*$'\r'*)
+    printf 'Cache root: unknown; invalid or profile-wide scope\n' >&2; exit 1 ;;
+esac
+probe="$cache_root"
+while [ "$probe" != / ]; do
+  if [ -L "$probe" ]; then
+    printf 'Cache root: review-only; linked scope skipped\n' >&2
+    exit 1
+  fi
+  probe="${probe%/*}"
+  [ -n "$probe" ] || probe=/
+done
+printf 'Cache root: %s\n' "$cache_root"
+if [ ! -e "$cache_root" ]; then
+  printf 'Cache usage: unknown; root absent or inaccessible (not a cleanup target)\n' >&2
+  exit 1
+fi
+if [ ! -d "$cache_root" ]; then
+  printf 'Cache usage: unknown; not a directory\n' >&2
+  exit 1
+fi
+if cache_usage="$(du -Psk "$cache_root")"; then
+  cache_kib="${cache_usage%%[[:space:]]*}"
+  case "$cache_kib" in
+    ''|*[!0-9]*) printf 'Cache usage: unknown; malformed measurement\n' >&2; exit 1 ;;
+  esac
+  printf 'Cache usage (KiB, scope only): %s\n' "$cache_kib"
+else
+  printf 'Cache usage: unknown; incomplete measurement\n' >&2
+  exit 1
+fi
+```
+
+**Preview broader maintenance separately.** Only with an already verified,
+working Homebrew/Ruby installation and fresh evidence that no install, update,
+upgrade or build is active, capture this optional read-only preview in private
+run scratch (15-second limit; no automatic retry). If runtime readiness, updater
+state or preview coverage is unknown, report **preview unavailable/manual-required**.
+Do not bootstrap Ruby, repair Homebrew, fetch metadata, update, upgrade or install
+anything to make discovery work. The environment switches below disable
+auto-update and analytics; they are not proof of runtime readiness or ownership.
+
+```bash
+# Homebrew maintenance preview (read-only; readiness checks required)
+HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ANALYTICS=1 brew cleanup --dry-run --scrub
+```
+
+Classify preview findings as **download-cache**, **installed-version**,
+**lock/prefix maintenance**, or **unknown**. Show only relevant path/scope metadata,
+not raw diagnostics or configuration. Never convert preview lines into deletion
+commands. A preview that omits a cached download does not prove the cache is empty;
+retained installed downloads remain part of measured usage, not expected recovery.
+Do not sum preview estimates with the cache directory size.
+
+**No automatic Homebrew mutation.** Even a cache-only-looking preview does not
+establish a cache-only executor. Keep maintenance manual-only rather than silently
+running broader cleanup for a cache selection, a general confirmation or `all`.
+Never remove the cache root/contents wholesale or redirect the current tool into a
+legacy store. Preserve installed current/newest/pinned/live versions. Any future
+automated action needs its own exact displayed scope and an appropriate supported
+executor, with refreshed target identity, cache configuration, selectors,
+consumer/liveness and install/update state; changed, active or uncertain scopes
+must be skipped. The current workflow grants no such Homebrew execution authority.
+
+Collect: exact resolved cache root, measured usage and method/completeness,
+**unknown uniquely reclaimable bytes**, preview availability/scope classes,
+and **manual-required** status. Apply the reporting threshold to usage, without
+turning the informational row into a selectable deletion option.
 
 **MacPorts:**
 - Detection: `command -v port`
@@ -1391,6 +1495,10 @@ Disk: [free]GB free / [total]GB total ([used]%)
 ```
 
 For the "Items" column, show up to 3 specific names then `(+N more)` if there are additional items.
+
+Homebrew cache usage and its maintenance preview are informational/manual-only;
+show them separately, never in selectable category totals or `all`. Broader
+installed-version maintenance is not authorized by a cache report or selection.
 
 ### Step 5: User Selection
 
@@ -1523,7 +1631,7 @@ distinct evidence. An empty/missing result does not prove elevation was declined
 | Dev tool caches (Linux/macOS) | Per-tool: cargo `cargo cache --autoclean` (or `find -delete` on `~/.cargo/registry` and `~/.cargo/git/db`) · Go **`go clean -modcache`** (NOT `find -delete` — module cache is read-only) · uv `uv cache clean` · Poetry `poetry cache clear --all -n .` · ccache `ccache -C` · others `find <path> -mindepth 1 -delete` |
 | Orphaned config/data dirs (Linux) | `find <orphan_path> -mindepth 1 -delete && rmdir <orphan_path>` per orphan — **requires per-item user confirmation** (false positives common from portable / curl-installed apps). |
 | Browser caches (Linux) | Exact selected cache contents only, preserving roots, after confirming browsers are closed and refreshing owner/process and live-path checks. Open/locked files are not a safety veto; incomplete evidence stays review-only. Firefox cache candidates are discovered by App Caches via `~/.cache/mozilla`. |
-| System pkg manager cache (macOS) | Homebrew: `brew cleanup -s` (add `--prune=all` for more aggressive). MacPorts: **requires sudo**, run `sudo port reclaim` in the user's terminal (interactive). |
+| System pkg manager cache (macOS) | Homebrew: informational/manual-only, excluded from selectable categories and `all`; only the separately described `brew cleanup --dry-run --scrub` preview is permitted after readiness checks, never broad cleanup or wholesale cache deletion for a cache selection. MacPorts: **requires sudo**, run `sudo port reclaim` in the user's terminal (interactive). |
 | Browser caches (macOS) | Exact selected cache contents only under `~/Library/Application Support/`, preserving roots, after confirming browsers are closed and refreshing owner/process and live-path checks. Open/locked files are not a deletion veto; incomplete evidence stays review-only. Safari/Firefox cache candidates are discovered by App Caches. |
 
 **Show progress** as each category is cleaned: what's being deleted and confirmation when done.

@@ -150,6 +150,10 @@ Retain exact paths in private evidence; share only the metadata the user request
   `grep -iF` on Windows or regex matching on backslash-laden paths.
 - Use npm's own `_cacache` cleanup. Never delete the npm-cache or `_npx` root;
   only exact immediate `_npx` children passing refreshed age/parent/liveness gates.
+- Homebrew cache usage and maintenance previews are informational/manual-only,
+  outside the selectable category table and `all`. A cache selection never
+  authorizes `brew cleanup`, installed-version maintenance or wholesale cache
+  deletion. See the macOS package-manager recipe for the read-only preview.
 - Browser/app caches require the owner to be closed. Preserve roots for contents-
   only actions, refresh owner/process and live-path checks before execution, and
   leave uncertain owners review-only. Incomplete evidence stays review-only.
