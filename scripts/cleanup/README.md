@@ -92,3 +92,28 @@ old installed versions in maintenance previews, non-selectable/manual-only
 reporting, invalid/linked roots and unavailable measurements/previews. They never
 invoke a real Homebrew installation, mutate workstation caches or validate a
 Homebrew cleanup executor; the skill intentionally provides none.
+
+## macOS read-only discovery
+
+`macos_scan.py` and `macos_ownership.py` require existing Python 3.10+ and are
+distributed by both installers. They import the already-distributed file-audit
+helper's POSIX metadata/descriptor primitives rather than duplicating traversal.
+Optional depth/prune arguments leave its existing Windows audit defaults unchanged.
+
+`purpose: read-only-macos-discovery` follows the read-only file-audit evidence
+layer, not the Windows scan/plan schema: partial sizes can be null and coverage is
+explicit. It has no cleanup policy/executor and must never enter the Windows plan
+builder. All findings are non-selectable evidence. Process and static registration
+gaps, linked/inaccessible/budget-limited scopes, overlap and top-N omissions are
+reported without persisting commands, config bodies or opaque server names.
+
+```sh
+python3 scripts/cleanup/tests/test-macos-discovery.py -v
+```
+
+Fixtures exercise metadata-only discovery, bundle/cache ownership, registered-but-
+idle consumers, JSONC, runtime/store siblings, hardlinks, budgets, redaction and
+private exclusive evidence. On native macOS, an isolated installer plus integrity
+preamble plus the installed CLI are exercised with temporary HOME/XDG/Claude roots
+and process/tool probes disabled (explicitly unknown, not absent). No real app,
+cache cleanup, user-runtime installation or dependency install is involved.

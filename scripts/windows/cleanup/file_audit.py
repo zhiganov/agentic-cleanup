@@ -48,7 +48,8 @@ class BoundarySkipped(OSError):
 def check_directory(info):
     if is_link(info):
         raise BoundarySkipped("linked-skipped")
-    if getattr(info, "st_file_attributes", 0) & CLOUD_FLAGS:
+    if (getattr(info, "st_file_attributes", 0) & CLOUD_FLAGS or
+            getattr(info, "st_flags", 0) & getattr(stat, "SF_DATALESS", 0x40000000)):
         raise BoundarySkipped("cloud-directory-skipped")
     if not stat.S_ISDIR(info.st_mode):
         raise BoundarySkipped("not-directory")
@@ -151,7 +152,7 @@ def root_scope(path, budget_check=lambda: None):
         yield parent
 
 
-def directory_entries(root, record, budget_check):
+def directory_entries(root, record, budget_check, max_depth=None, prune=None):
     """Depth-first walk, holding parent pins until all children are processed."""
     frames = []
     try:
@@ -173,8 +174,15 @@ def directory_entries(root, record, budget_check):
                     info = parent.metadata(child.name)
                     if not stat.S_ISDIR(info.st_mode) or is_link(info):
                         continue
+                    path = os.path.join(parent.path, child.name)
+                    if prune is not None and prune(path):
+                        record["prunedDirectories"] = record.get("prunedDirectories", 0) + 1
+                        continue
+                    if max_depth is not None and len(frames) >= max_depth:
+                        record["depthSkipped"] = record.get("depthSkipped", 0) + 1
+                        continue
                     budget_check()
-                    pin = directory_scope(os.path.join(parent.path, child.name), parent,
+                    pin = directory_scope(path, parent,
                                           (info.st_dev, info.st_ino))
                     nested = pin.__enter__()
                     try:
@@ -278,7 +286,8 @@ def extended_path(path):
 
 def allocated_bytes(path, info):
     """No content reads. Cloud recall flags are an unknown allocation measurement."""
-    if getattr(info, "st_file_attributes", 0) & CLOUD_FLAGS:
+    if (getattr(info, "st_file_attributes", 0) & CLOUD_FLAGS or
+            getattr(info, "st_flags", 0) & getattr(stat, "SF_DATALESS", 0x40000000)):
         return None, "cloud-placeholder-not-probed"
     if is_link(info):
         return None, "linked-not-probed"

@@ -4,6 +4,11 @@ Drop this into any LLM with shell access (Claude Code, Cursor, Codex, ChatGPT wi
 
 The goal: reclaim space without trashing anything you care about. Each category below is something the LLM can detect, measure, and *propose* — you decide what gets deleted.
 
+The installed product's macOS workflow uses committed, bounded Python discovery
+and ownership helpers. This portable prompt does not bundle those helpers or
+establish equivalent process/static-MCP coverage. Unknown ownership stays review-only;
+do not claim installed-adapter validation or cleanup-plan compatibility here.
+
 ## The algorithm
 
 1. **Measure.** On macOS/Linux use `df -Pk` on the workspace filesystem for a scan baseline; on Windows use the target drive's available-space measurement. Keep raw bytes, not rounded display values. This baseline is not the execution "before".

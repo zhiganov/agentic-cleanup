@@ -56,6 +56,10 @@ This entry point governs safety, selection, accounting, and newer helper usage.
 - Ordinary cleanup uses whole-drive indexed evidence when available, otherwise
   bounded top-consumer discovery plus applicable category recipes. A narrow
   personal-folder request uses only its selected folders, not a forced drive scan.
+- For ordinary macOS discovery (including dry-run), read **macOS committed
+  discovery** in the reference and run the verified Python adapter instead of
+  inventing per-run filesystem/process scripts. Its read-only inventory is not a
+  cleanup plan; missing Python or incomplete ownership is not a fallback grant.
 - `--dry-run` stops after the report. `--structured-preview` uses committed
   `scan.ps1` plus `render-scan.ps1` (PowerShell 7), then stops without a plan.
 
