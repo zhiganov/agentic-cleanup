@@ -106,7 +106,27 @@ trusted process; missing worker output is not interpreted as declined UAC.
 
 ## Windows helper scripts
 
-On Windows the scan and delete steps are backed by committed helper scripts in [`scripts/windows/cleanup/`](./scripts/windows/cleanup/) — a size lookup over the WizTree CSV, whole-drive outlier discovery, the `node_modules` / build-artifact finder, the elevated WizTree export, the orphan/old-version discovery scripts, and allowlisted structured executors. Versioned scan/plan/result contracts live in [`scripts/cleanup/`](./scripts/cleanup/). The installers place both under the shared agent-neutral data directory; the skill resolves them automatically. macOS/Linux runs need no helper scripts.
+On Windows the scan and delete steps are backed by committed helper scripts in [`scripts/windows/cleanup/`](./scripts/windows/cleanup/) — a size lookup over the WizTree CSV, whole-drive outlier discovery, the `node_modules` / build-artifact finder, the elevated WizTree export, the orphan/old-version discovery scripts, and allowlisted structured executors. Versioned scan/plan/result contracts live in [`scripts/cleanup/`](./scripts/cleanup/). The installers place both under the shared agent-neutral data directory; the skill resolves them automatically.
+
+## macOS discovery adapter
+
+Ordinary `/cleanup` and `/cleanup --dry-run` use committed `macos_scan.py` and
+`macos_ownership.py`, requiring an **existing Python 3.10+**. No dependency is
+installed implicitly. They reuse the file-audit helper's no-follow POSIX scopes,
+file identities and allocation methods, with explicit time/depth/entry bounds.
+
+The read-only inventory identifies bounded app/cache owners, exact sandbox/browser
+cache subtrees, configured tool caches, runtime release families and pnpm store
+generations. Static local MCP registrations protect idle project dependencies;
+process/open-path evidence protects observed live consumers. Incomplete or dynamic
+ownership stays review-only. It never persists commands, credentials or config bodies.
+
+Evidence is a new private JSON file, with coverage/skips/budgets/top-N disclosed.
+It is **not an executable cleanup plan**: all items remain non-selectable until
+independent category eligibility, selection and refreshed checks. No whole-drive
+claim, group-container/VM deletion, app stopping, runtime change or APFS reclaim
+estimate is introduced. Homebrew remains manual-only. Use supported in-app clearing
+where appropriate; user-reported manual clearing is not measured recovery.
 
 ## What It Scans (32 categories)
 
@@ -120,7 +140,7 @@ The skill detects the OS at runtime and only scans categories that apply.
 | Linux — Fedora (dnf/rpm) | **Validated** | Tested with the orphan scan's 4-layer filter chain (allowlist + active-binary + 30-day mtime + token-boundary package match). |
 | Linux — Debian/Ubuntu (apt) | Scan exercised, **clean not exercised** | Dry-run scan run on Ubuntu 26.04 under WSL2 (2026-10-26): categories detected and measured as expected. No clean commands run yet. Under WSL2, `df /` reports the virtual disk's ceiling (default 1 TB), not the host drive's free space. |
 | Linux — Arch (pacman), openSUSE (zypper) | Written, **not exercised** | Same as Debian. |
-| macOS | Written, **not exercised** end-to-end | All categories present: App Caches, Trash, Dev Tool Caches, Homebrew/MacPorts cache, Chromium-family browser caches under `~/Library/Application Support/`. Symmetric to Linux but hasn't been run on a real Mac. |
+| macOS | Read-only scanner and isolated installation exercised; **automated cleanup not validated** | Native macOS disposable fixtures exercise the committed adapter and installed entry point. An earlier workstation dry run/manual app clearing does not validate automated deletion. |
 
 ### Cross-platform (9)
 

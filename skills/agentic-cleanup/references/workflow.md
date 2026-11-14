@@ -8,6 +8,7 @@ examples if they differ.
 
 - Helper scripts / integrity and workspace resolution
 - Step 1–2.5: platform detection and indexed discovery
+- macOS committed discovery (ordinary scans, including dry-run)
 - First-scan runtime and cache inventory (before the ordinary report)
 - Step 3: Cross-platform categories
 - Step 3: Windows-only categories
@@ -45,7 +46,7 @@ The skill detects the OS at runtime and only scans categories that apply. Covera
 | Linux — Fedora (dnf/rpm) | **Validated** | Tested on Fedora 44 with the orphan scan's 4-layer filter chain (allowlist + active-binary + 30-day mtime + token-boundary package match). |
 | Linux — Debian/Ubuntu (apt) | Scan exercised, **clean not exercised** | Dry-run scan run on Ubuntu 26.04 under WSL2 (2026-10-26): detection and measurement worked. Clean commands have not been run. **Under WSL2, `df /` reports the virtual disk's ceiling (default 1 TB), not free space on the Windows host drive** — report that the real constraint is the host drive, and that space freed inside WSL2 returns to the host only after the `ext4.vhdx` is compacted. |
 | Linux — Arch (pacman), openSUSE (zypper) | Written, **not exercised** | Same as Debian — logic exists, untested. |
-| macOS | Written, **not exercised end-to-end** | All categories present: App Caches, Trash, Dev Tool Caches, Homebrew/MacPorts pkg cache, Chromium-family browser caches under `~/Library/Application Support/`. Logic is symmetric to Linux but hasn't been run against a real Mac in this revision. |
+| macOS | Read-only scanner and isolated installation exercised; **automated cleanup not validated** | Committed Python discovery/ownership adapter with native macOS disposable fixtures. Actual workstation cleanup is not established by a dry run or manual in-app clearing. |
 
 If you run this on an untested distro and something misbehaves, the category guards mean it'll fail loud rather than damage the system — the scan reads, then the user explicitly picks what to clean.
 
@@ -55,9 +56,14 @@ Parse the optional arguments supplied by the invoking command. If they contain `
 
 ## Instructions
 
-## Helper scripts (Windows)
+## Helper scripts (all platforms)
 
-The Windows scan/delete helpers are **committed files** — do NOT re-author them as inline heredocs. Backslash literals get mangled inside a heredoc, and a hardcoded `/tmp/...` path inside a script is not MSYS-converted (only command-line arguments are). This repository is the sole source; installed payloads are release consumers. Resolve one complete payload root for both helpers and contracts. Legacy copies in other repositories are not candidates and are not compared or synchronized:
+The Windows scan/delete helpers and macOS read-only adapter are **committed files**.
+Do not recreate them as per-run inline scanners. Windows backslash literals get
+mangled inside heredocs, and hardcoded `/tmp/...` paths are not MSYS-converted.
+This repository is the sole source; installed payloads are release consumers.
+Resolve one complete root for helpers and contracts. Legacy copies in other
+repositories are not candidates and are not compared or synchronized:
 
 ```bash
 # Workspace root = the OUTERMOST ancestor containing .claude, .opencode,
@@ -110,7 +116,7 @@ if [ "$CLEANUP_ROOT" = "$agentic_data" ]; then
     skills/agentic-cleanup/SKILL.md
     skills/agentic-cleanup/references/workflow.md
     scripts/windows/cleanup/{wt_lookup.py,find_targets.py,find_outliers.py,file_audit.py,path_evidence.ps1,windows_maintenance.ps1,maintenance.ps1,assert_list.py,live_paths.ps1,registered_mcp.ps1,diskspace.ps1,run_wiztree.ps1,squirrel.ps1,appdata_orphans.ps1,winsdk.ps1,vs_orphans.ps1,scrub.ps1,scan.ps1,execute-plan.ps1,README.md}
-    scripts/cleanup/{Cleanup.Contracts.psm1,build-plan.ps1,validate-plan.ps1,render-scan.ps1,render-result.ps1,README.md,schemas/scan.schema.json,schemas/plan.schema.json,schemas/result.schema.json,policies/windows.v1.json}
+    scripts/cleanup/{Cleanup.Contracts.psm1,build-plan.ps1,validate-plan.ps1,render-scan.ps1,render-result.ps1,macos_scan.py,macos_ownership.py,README.md,schemas/scan.schema.json,schemas/plan.schema.json,schemas/result.schema.json,policies/windows.v1.json}
   )
   [ "$(wc -l < "$manifest" | tr -d ' ')" -eq "${#manifest_paths[@]}" ] || \
     { echo "STOP: installed cleanup manifest inventory is incomplete; reinstall /cleanup"; exit 1; }
@@ -280,6 +286,73 @@ esac
 
 If `$WORKSPACE_SCOPED` is 0, skip the node_modules and Build Artifacts categories and say so in the report. Do **not** substitute a narrower root to make them run.
 
+### macOS committed discovery
+
+For ordinary macOS `/cleanup`, including `--dry-run`, use the verified installed
+or source `scripts/cleanup/macos_scan.py` once. This replaces improvised cache,
+application, runtime and workspace traversal; it does not replace a narrow
+personal-folder audit or the Windows structured preview. Require an existing
+Python 3.10+ (`command -v python3`); if unavailable, stop and report the dependency.
+Never install Python or fall back to a newly invented scanner implicitly.
+
+Create one private task-owned run directory under the approved cleanup scratch
+root. Use its physical path (system temp aliases are not input scan roots), then:
+
+```bash
+python3 "$CLEANUP_CONTRACTS/macos_scan.py" --cwd "$PWD" \
+  --max-seconds 45 --max-entries 250000 --max-depth 20 --limit 100 \
+  --output "<physical-private-run-directory>/macos-discovery.json"
+```
+
+The entry point resolves the outermost workspace marker excluding home, reports
+a passed nearer marker, and rejects home/root fallbacks for workspace categories.
+It uses the existing `file_audit.py` POSIX descriptor scopes and allocation methods,
+not a duplicate walker. Both modules and that shared helper must belong to the
+same verified payload. JSON evidence is a new exclusive mode-0600 file; never
+overwrite another run's evidence. Clean only this run's scratch after reporting,
+including dry-run reports, using the governing scratch-lifecycle rules.
+
+Discovery covers bounded Library cache roots, exact known browser/Electron cache
+subtrees, known-owner sandbox `Data/Library/Caches` (not whole containers),
+allowlisted tool-cache overrides, configured npm cache metadata, runtime release
+families/current/newest selectors, pnpm generation siblings, and scoped workspace
+dependency/build directories. Application names come from bounded bundle plist
+metadata. Current/newest/live/unknown-version runtimes stay protected; incomplete
+pin/update ownership keeps older versions review-only. Homebrew remains manual-only.
+Do not run duplicate filesystem scans for these items. Supplement only uncovered
+tool-native categories such as Docker using their applicable existing recipes.
+
+Process/open-path and static Claude/OpenCode V2 registration evidence are
+separate. A registered local server can protect project dependencies even while
+idle and launching from sibling `dist/`. Sources include global/system and bounded
+ancestor/project configurations; JSONC comments/trailing commas are supported.
+Only launch/cwd path fields are interpreted; commands, credentials, environment
+bodies and opaque server names are never written to evidence. Dynamic/managed,
+shell, unresolved-variable and package-only ownership gaps remain explicit.
+Positive matches protect scopes; absent matches or zero recognized runtimes do
+not prove non-use. No tool/runtime launcher is executed to learn its version.
+
+Inspect `coverage`, bounds, top-N omissions, process/MCP limitations and each
+item's classification before rendering the report. Partial/inaccessible/linked,
+changed, budget-limited or unknown allocation stays unknown, not measured zero.
+No user file contents or cloud placeholders are read to measure payload size.
+Group containers, whole profiles, application state, VM disks, source and history
+are not disposal candidates. Prefer supported in-app cache controls where useful;
+a manually cleared item is user-reported until measured and proves no byte gain.
+
+`purpose: read-only-macos-discovery` is the file-audit evidence layer, **not** a
+Windows `scan.schema.json` plan input. Every item has `selectable: false`; there
+is no new cleanup executor or registry. Never feed it to `build-plan.ps1` or turn
+it directly into a deletion list. Category recipes still require independent
+eligibility, exact selection and refreshed execution checks. Incomplete static
+MCP ownership cannot be overridden with Git inactivity or an ad-hoc fallback.
+No APFS container/free-space inference or historical planner is added here.
+
+Explicit `--home`, `--applications`, and `--system-config-root` arguments bound
+alternate read-only roots. `--no-process-probe`/`--no-tool-probe` disclose missing
+evidence, never absence; they cannot grant eligibility. They are useful for
+disposable fixtures, not substitutes for normal ownership evidence.
+
 ### Step 2.5: WizTree Fast Scan (Windows only)
 
 **Skip if platform is not windows.**
@@ -361,6 +434,10 @@ roots. Record that this is a scoped approximation rather than a complete
 indexed-drive census.
 
 ### Step 3: Scan All Categories
+
+On macOS, first use the single committed discovery adapter above. Dispatch only
+uncovered tool-native categories separately; do not repeat its filesystem walks
+with parallel ad-hoc category scripts.
 
 Scan all applicable categories below **in a single batch of parallel tool calls** — one Bash invocation per category, all dispatched in the same assistant turn. This is dramatically faster than sequential scanning (a 30-second category and a 5-second category finish in 30 seconds total, not 35). Skip categories that don't apply to the current platform or where required tools are missing.
 
