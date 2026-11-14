@@ -136,6 +136,11 @@ subtotals are not unique recovery estimates, including for clones/snapshots.
 Read-only snapshots support fresh per-operation and post-scratch comparisons;
 signed net changes can be negative and do not prove what caused them.
 
+Measurements share the remaining global entry/time budget across discovered
+non-overlapping targets, so a large early store cannot consume every later
+target's share. Per-root cuts and unmeasured scopes remain explicit and unknown.
+The scanner does not silently raise limits or repeat a cut-short walk.
+
 ## What It Scans (32 categories)
 
 The skill detects the OS at runtime and only scans categories that apply.

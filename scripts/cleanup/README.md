@@ -110,6 +110,7 @@ reported without persisting commands, config bodies or opaque server names.
 ```sh
 python3 scripts/cleanup/tests/test-macos-discovery.py -v
 python3 scripts/cleanup/tests/test-macos-accounting.py -v
+python3 scripts/cleanup/tests/test-macos-scheduling.py -v
 ```
 
 Fixtures exercise metadata-only discovery, bundle/cache ownership, registered-but-
@@ -156,3 +157,28 @@ invalid pairs stay unknown; shared-container deltas are not summed. The caller
 must keep operation status and selected-scope decrease separate, snapshot
 immediately before each operation, and take final observations after scratch
 removal. Save final evidence outside scratch and disclose its subsequent write.
+
+### macOS measurement scheduling
+
+Discovery retains its existing bounded runtime/store inventory and ownership
+checks. The scanner then excludes overlapping parents and measures each remaining
+target once, allocating a share of the remaining global entries and seconds to
+each root. Small/absent targets leave more budget for later roots; no earlier root
+is revisited. Global CLI defaults and entry/time limits are unchanged.
+
+`root-entry-limit` and `root-timed-out` distinguish local cuts from global
+exhaustion. Every measurement records assigned entry/time budget, used entries,
+elapsed seconds and whether it was attempted. `measurementScheduling` reports
+discovery/measurement counts, attempted/unmeasured targets, local cuts and unspent
+entries. Global limits take precedence; time checks remain cooperative around
+metadata/owned command work. Discovery/global exhaustion can still leave targets
+unmeasured. Incomplete sizes remain null, observed partial subtotals stay separate,
+and no recovery/deletion eligibility is inferred from a slice.
+
+The renderer displays these limits and supports older saved reports without the
+new fields. Threshold/top-N filtering remains after measurement. Fixtures cover a
+large early store and later material caches, per-root time/entry cuts, handle
+release, smaller-than-target-count budgets, unchanged protection/ownership,
+omissions and returned unused budget. The isolated installed-entrypoint fixture
+uses a disposable large store with a small global budget; it is not a workstation
+scan or cleanup benchmark.

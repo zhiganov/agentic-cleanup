@@ -47,6 +47,7 @@ class Scanner:
         self.max_seconds, self.max_entries, self.max_depth = max_seconds, max_entries, max_depth
         self.limit, self.minimum = limit, minimum_bytes
         self.entries, self.coverage, self.targets, self.warnings = 0, [], {}, []
+        self.root_entry_limit, self.root_deadline = None, None
         self.run, self.tool_probe = run, tool_probe
         self.space = Filesystems(self.bounded_command, self.check) if space_probe else None
         self.process = process
@@ -64,10 +65,17 @@ class Scanner:
             raise metadata.BudgetExceeded("timed-out")
         if self.entries >= self.max_entries:
             raise metadata.BudgetExceeded("entry-limit")
+        if self.root_deadline is not None and time.monotonic() >= self.root_deadline:
+            raise metadata.BudgetExceeded("root-timed-out")
+        if self.root_entry_limit is not None and self.entries >= self.root_entry_limit:
+            raise metadata.BudgetExceeded("root-entry-limit")
 
     def bounded_command(self, args, seconds=5, **kwargs):
         self.check()
         remaining = max(0.01, self.deadline - time.monotonic())
+        if self.root_deadline is not None:
+            # Do not impose the normal minimum after applying the root slice.
+            remaining = min(remaining, max(0.000001, self.root_deadline - time.monotonic()))
         return self.run(args, seconds=min(seconds, remaining), **kwargs)
 
     def record(self, path, status, **extra):
@@ -386,9 +394,14 @@ class Scanner:
                 break
             current = os.path.dirname(current)
 
-    def measure(self, spec):
+    def measure(self, spec, entry_budget=None, seconds_budget=None):
         path = spec["path"]
         record = {"path": path, "status": "complete", "linkedSkipped": 0, "inaccessibleSkipped": 0}
+        started, initial_entries = time.monotonic(), self.entries
+        previous_budget = self.root_entry_limit, self.root_deadline
+        self.root_entry_limit = None if entry_budget is None else initial_entries + entry_budget
+        self.root_deadline = None if seconds_budget is None else min(self.deadline, started + seconds_budget)
+        attempted = False
         logical, allocated, unknown, newest, shared = 0, 0, 0, 0, 0
         filesystem_id, root_device = None, None
         identities = set()
@@ -415,6 +428,8 @@ class Scanner:
                 self.global_allocated += value or 0
                 self.global_unknown += value is None
         try:
+            self.check()
+            attempted = True
             with metadata.root_scope(os.path.dirname(path), self.check) as parent:
                 info = parent.metadata(os.path.basename(path))
                 if metadata.is_link(info):
@@ -422,6 +437,7 @@ class Scanner:
                 root_device = info.st_dev
                 if self.space is not None:
                     filesystem_id = self.space.observe(path if stat.S_ISDIR(info.st_mode) else os.path.dirname(path), root_device)
+                self.check()
                 newest = info.st_mtime
                 if stat.S_ISREG(info.st_mode):
                     include(path, info)
@@ -444,6 +460,12 @@ class Scanner:
             record["status"] = "absent"
         except OSError:
             record["status"] = "inaccessible"
+        finally:
+            self.root_entry_limit, self.root_deadline = previous_budget
+        budget = {"entryLimit": entry_budget, "seconds": seconds_budget,
+                  "entriesVisited": self.entries - initial_entries,
+                  "elapsedSeconds": max(0, time.monotonic() - started)}
+        record.update(measurementAttempted=attempted, measurementBudget=budget)
         if record.get("depthSkipped") or record.get("crossFilesystemSkipped") or record["linkedSkipped"] or record["inaccessibleSkipped"]:
             record["status"] = "partial" if record["status"] == "complete" else record["status"]
         self.coverage.append(record)
@@ -462,6 +484,7 @@ class Scanner:
             classification = "live-dependency"
         return {"path": path, "category": spec["category"], "owner": spec["owner"],
                 "classification": classification, "selectable": False, "coverage": record["status"],
+                "measurementAttempted": attempted, "measurementBudget": budget,
                 "filesystemId": filesystem_id, "logicalBytes": logical if complete else None,
                 "allocatedBytes": allocated if complete and not unknown else None,
                 "observedLogicalBytes": logical, "observedAllocatedKnownBytes": allocated,
@@ -517,12 +540,21 @@ class Scanner:
                         spec["category"] = "homebrew-manual"
                 parent = os.path.dirname(parent)
         ordered = sorted(self.targets.values(), key=lambda item: (item["category"] not in ("runtime-release", "pnpm-store-generation"), item["path"]))
+        measurement_targets = []
         for spec in ordered:
             # Specific descendants take precedence; broad overlapping cache parents stay unmeasured.
             if spec["path"] in containing_roots:
                 self.record(spec["path"], "overlapping-root-not-measured", coveredBy="more-specific-discovery-roots")
                 continue
-            rows.append(self.measure(spec))
+            measurement_targets.append(spec)
+        discovery_entries = self.entries
+        for index, spec in enumerate(measurement_targets):
+            remaining_targets = len(measurement_targets) - index
+            remaining_entries = max(0, self.max_entries - self.entries)
+            remaining_seconds = max(0, self.deadline - time.monotonic())
+            rows.append(self.measure(spec,
+                entry_budget=max(1, remaining_entries // remaining_targets) if remaining_entries else 0,
+                seconds_budget=remaining_seconds / remaining_targets))
         material = [row for row in rows if (row["logicalBytes"] is None and row["coverage"] != "absent") or
                     max(row["logicalBytes"] or 0, row["allocatedBytes"] or 0) >= self.minimum]
         material.sort(key=lambda row: (-(row["observedAllocatedKnownBytes"] or row["observedLogicalBytes"]), row["path"]))
@@ -535,6 +567,13 @@ class Scanner:
                 "limits": {"maxSeconds": self.max_seconds, "maxEntries": self.max_entries,
                            "maxDepth": self.max_depth, "workspaceDepth": min(self.max_depth, 8), "limit": self.limit},
                 "entriesVisited": self.entries, "minimumBytes": self.minimum,
+                "measurementScheduling": {"method": "remaining-budget-share-single-pass",
+                    "targets": len(measurement_targets), "discoveryEntriesVisited": discovery_entries,
+                    "measurementEntriesVisited": self.entries - discovery_entries,
+                    "unspentEntryBudget": max(0, self.max_entries - self.entries),
+                    "attemptedTargets": sum(row["measurementAttempted"] for row in rows),
+                    "unmeasuredTargets": sum(not row["measurementAttempted"] for row in rows),
+                    "perRootLimitedTargets": sum(row["coverage"] in ("root-entry-limit", "root-timed-out") for row in rows)},
                 "coverage": self.coverage, "coverageSummary": coverage_summary(self.coverage),
                 "workspaceDescentExclusions": sorted(PRUNE),
                 "discoveryStages": stages, "processCensus": self.process["summary"],

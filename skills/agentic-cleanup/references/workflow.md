@@ -386,6 +386,21 @@ read its per-scope gaps. Subtotals include observed identities in omitted rows;
 never sum overlapping/hardlinked item rows or relabel subtotals as recovery.
 Process/MCP limitations remain separate from size coverage.
 
+Target measurement is a single pass. After discovery and overlap exclusion, each
+remaining target receives a share of the remaining global entry/time budget.
+Small or absent scopes leave budget for later targets. The runtime/store inventory
+and its priority are retained; large early walks stop at `root-entry-limit` or
+`root-timed-out` instead of spending the budget reserved for later scopes.
+Assigned/used per-root budgets, attempted/unmeasured counts, discovery/measurement
+entry counts and unspent entries are evidence, not completeness claims.
+Global `entry-limit`/`timed-out` still take precedence. An unattempted target has
+unknown sizes; partial subtotals never become full sizes or recovery estimates.
+Metadata time checks remain cooperative. A small budget, slow metadata, or
+discovery exhaustion can still leave scopes unmeasured. No budget is silently
+raised, and unused remaining budget does not trigger a second pass over cut-short
+roots. Top-N/threshold filtering occurs after measurement, not as a traversal
+shortcut. Do not rerun or broaden the scan automatically to fill these gaps.
+
 For each independently approved operation, choose exact existing retained parent
 directories on every affected filesystem. Take a new snapshot immediately before
 the operation (not the scan baseline), retain per-operation snapshots when several
