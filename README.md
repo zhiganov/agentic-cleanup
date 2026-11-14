@@ -178,7 +178,7 @@ macOS-only:
 
 | Category | What it finds |
 |----------|---------------|
-| System pkg manager cache | Homebrew (`brew cleanup -s`), MacPorts (`sudo port reclaim`, interactive) |
+| System pkg manager cache | Homebrew: actual configured cache usage plus an optional read-only maintenance preview; manual-only, outside `all` (cleanup can remove installed versions). MacPorts: `sudo port reclaim`, interactive. |
 | Browser caches (macOS Chromium-family) | Chrome, Chromium, Brave, Edge, Vivaldi, Arc, Opera under `~/Library/Application Support/<browser>/` (Safari and Firefox are caught by App Caches) |
 
 ## Example Output
@@ -215,6 +215,7 @@ Which categories to clean? Enter numbers (e.g., 1,2,3), all, or none to cancel.
 - **Single UAC prompt.** Elevated categories (system logs, VS cache, kernel reports) are batched into one admin PowerShell invocation.
 - **Browser/app-safe.** Requires owners to be closed and refreshes owner/process and live-path checks before selected cache cleanup. Open/locked files are not a reliable deletion veto on Unix; uncertain owners stay review-only, cache roots are preserved, and partial/access failures are reported.
 - **Respects permission denials.** Stop the blocked operation. Never change syntax, wrappers or tools to evade a safety hook or unresolved permission denial.
+- **Homebrew scope stays explicit.** Cache usage is not an expected cleanup recovery amount. Homebrew maintenance is manual-only and excluded from selectable categories and `all`; cache selection never triggers installed-version cleanup or wholesale cache deletion.
 - **Skips missing tools.** If Docker, pip, pnpm, yarn, or WizTree isn't installed, gracefully falls back or skips.
 - **Handles failures gracefully.** If one category fails, continues with the rest and reports what failed.
 

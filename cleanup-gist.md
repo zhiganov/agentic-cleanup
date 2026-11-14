@@ -31,7 +31,7 @@ Almost always safe to clean — these are pure caches that the tool will refill 
 - **pip.** `pip cache info` prints the path and size; `pip cache purge` empties it.
 - **cargo.** `~/.cargo/registry/cache` and `~/.cargo/registry/src`. Safe to `rm -rf` — cargo refetches.
 - **go.** `go env GOMODCACHE` and `go env GOCACHE`. Clean with `go clean -modcache` and `go clean -cache`.
-- **homebrew (macOS).** `brew --cache` shows the path; `brew cleanup -s` is the maintained command.
+- **Homebrew (macOS), informational/manual-only.** Resolve the actual cache with `HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ANALYTICS=1 brew --cache`, honoring `HOMEBREW_CACHE`; never assume the default or separately add its `downloads` directory. Reject profile-wide/linked roots and keep failed or incomplete measurements unknown. Cache usage is not expected recovery. With an already verified working Homebrew/Ruby installation and fresh evidence of no install/update/build activity, an optional `HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ANALYTICS=1 brew cleanup --dry-run --scrub` preview can show download-cache, installed-version, lock/prefix and unknown scopes. Otherwise report preview unavailable/manual-required; do not bootstrap, repair, fetch, update, upgrade or install anything. Do not convert preview output into deletion commands. Keep installed current/newest/pinned/live versions protected. Homebrew is excluded from the selectable category table and `all`; never run broader cleanup or wholesale cache deletion for a cache selection. Any future operation needs separately displayed exact scope and refreshed target/configuration/consumer/updater checks; this workflow provides no automatic Homebrew mutation.
 
 Threshold: skip a tool if its cache is under ~50 MB or the tool isn't installed.
 
@@ -95,6 +95,10 @@ file-edit history. Age does not make those records disposable.
 - **Linux:** scan `~/.cache/` for subdirectories larger than 50 MB.
 
 For each large subdirectory, the clean command is `rm -rf <path>/*` (contents only — don't remove the directory the app expects to exist).
+
+Homebrew cache roots and descendants are informational/manual-only, not a generic
+App Caches selection. Unresolved default-looking or legacy Homebrew directories
+stay review-only; never use this category to bypass the Homebrew boundary.
 
 **The app must be closed first.** Immediately before selected removal, refresh
 owner/process and live-path checks. Unknown ownership or incomplete evidence stays
@@ -168,6 +172,7 @@ Which categories to clean? (e.g., 1,2,3 / all / none)
 A few rules for the table:
 
 - Only include categories that found *something* — skip empty rows entirely.
+- Keep Homebrew usage/maintenance findings separate and informational/manual-only, excluded from selectable totals and `all`.
 - Sort by size descending.
 - For "Items": up to 3 names, then `(+N more)`.
 - Always show the disk free/total/% header — it's the most important context.

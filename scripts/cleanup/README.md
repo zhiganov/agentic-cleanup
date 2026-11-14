@@ -79,3 +79,16 @@ skill/portable/documentation consumers. They include a disposable POSIX fixture
 showing that an open, advisory-locked file can be unlinked. They do not invoke a
 cleanup executor, touch workstation caches or establish end-to-end Unix cleanup
 validation.
+
+Homebrew scope regression checks:
+
+```sh
+python3 scripts/cleanup/tests/test-homebrew-scope.py
+```
+
+These execute the maintained recipe's read-only Bash snippets against isolated
+fake `brew`/`du` tools. They cover configured cache paths, retained downloads,
+old installed versions in maintenance previews, non-selectable/manual-only
+reporting, invalid/linked roots and unavailable measurements/previews. They never
+invoke a real Homebrew installation, mutate workstation caches or validate a
+Homebrew cleanup executor; the skill intentionally provides none.
