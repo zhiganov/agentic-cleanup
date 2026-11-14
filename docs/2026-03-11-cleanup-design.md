@@ -1,5 +1,10 @@
 # /cleanup — Developer Workstation Disk Cleanup
 
+> **Safety precedence:** Older cleanup and safety examples are superseded by the
+> [governing skill](../skills/agentic-cleanup/SKILL.md) and its maintained reference.
+> In particular, conversation/session logs and file-edit history are protected
+> regardless of age. Do not execute historical deletion examples as current policy.
+
 Slash command that scans a developer workstation for reclaimable disk space, reports findings in a categorized table, lets the user select which categories to clean, and executes the cleanup.
 
 Published as `zhiganov/agentic-cleanup`, with installers for Claude Code and OpenCode V2.

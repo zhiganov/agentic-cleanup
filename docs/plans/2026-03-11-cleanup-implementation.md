@@ -1,5 +1,10 @@
 # /cleanup Implementation Plan
 
+> **Historical plan:** Its cleanup and safety examples are superseded by the
+> [governing skill](../../skills/agentic-cleanup/SKILL.md) and maintained reference.
+> Conversation/session logs and file-edit history are protected regardless of age.
+> Do not execute this original plan's deletion examples as current policy.
+
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Create a publishable `/cleanup` slash command that scans a developer workstation for reclaimable disk space and lets users selectively clean categories.
