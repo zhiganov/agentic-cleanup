@@ -225,7 +225,8 @@ Measure current disk space as the **scan baseline**, not the execution "before":
 - **macOS:** Use the committed scanner's `filesystemSpace` for the scan baseline,
   then `macos_report.py snapshot` below for fresh per-operation/final observations.
   It measures `fstatvfs` on a pinned no-follow existing directory, uses `df -Pk`
-  only to discover a device, validates that block device against `st_dev`, and
+  only to discover a device, validates that block device against mounted-filesystem
+  `f_fsid` (not inode `st_dev`), and
   reads bounded `diskutil info -plist` metadata. A failed identity check is a gap,
   not a different volume's measurement. Never substitute the root volume for Data.
 - **Linux:** Run `df -Pk "$root"` for the workspace scan baseline. For
@@ -358,6 +359,14 @@ make its size partial. Explicit external cache roots are measured separately.
 Root, home and workspace baseline observations are associated with their devices,
 not assumed to be the same filesystem. APFS System/Data volume groups and shared
 containers are informational relationships, never independent pools to add up.
+Observation caching uses the pinned descriptor's `fstatvfs.f_fsid`: APFS paths
+can share inode `st_dev` while belonging to different mounted filesystems.
+`st_dev` still guards expected file/root identity, not mounted-volume identity.
+A missing filesystem ID produces an isolated unknown observation; failed identity
+lookups are not promoted to verified associations or automatically retried.
+Safe diagnostic stage/code plus numeric exit/errno fields explain discovery,
+device verification, plist parsing and required UUID failures. Raw command output,
+plists, volume names and exception text are never included in diagnostics.
 Capacity/free readings are non-additive observations; quotas/reserves, snapshots,
 clones and purgeable sharing prevent a uniquely reclaimable estimate. Deduplicate
 file identities, but do not treat distinct clone identities as distinct physical
