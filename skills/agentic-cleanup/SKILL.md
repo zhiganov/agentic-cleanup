@@ -124,6 +124,11 @@ Retain exact paths in private evidence; share only the metadata the user request
   reclaimable bytes**, and **observed net disk change**. Unsupported allocation
   is unknown, never zero. Cloud placeholders, compression, sparse files, hardlinks
   and junctions invalidate logical-size-as-recovery assumptions.
+- On macOS, use the committed `macos_report.py` renderer/snapshots described in
+  **macOS committed discovery**. Associate each target with its actual filesystem;
+  keep external volumes separate. APFS System/Data capacity and free space share
+  a container and must not be summed. Clones/snapshots/purgeable sharing remain
+  unknown; inode deduplication does not establish unique physical recovery.
 - Indexed allocation without file identity is not a deduplicated reclaim estimate.
   Installed-app registry sizes and raw WinSxS/backups totals are not recovery
   estimates. A package count cannot be converted into reclaimable bytes.

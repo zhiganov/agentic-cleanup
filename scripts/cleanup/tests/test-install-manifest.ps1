@@ -49,8 +49,8 @@ $entries = foreach ($line in Get-Content -LiteralPath $manifestPath) {
     [ordered]@{ digest = $Matches[1]; installPath = $Matches[2]; sourcePath = Resolve-Source $Matches[2] }
 }
 
-Assert-True (@($entries).Count -eq 35) 'Install manifest lists every command, skill, reference, helper, contract, schema, and policy file'
-Assert-True (@($entries.installPath | Sort-Object -Unique).Count -eq 35) 'Install manifest inventory has no duplicate paths'
+Assert-True (@($entries).Count -eq 36) 'Install manifest lists every command, skill, reference, helper, contract, schema, and policy file'
+Assert-True (@($entries.installPath | Sort-Object -Unique).Count -eq 36) 'Install manifest inventory has no duplicate paths'
 foreach ($entry in $entries) {
     Assert-True (Test-Path -LiteralPath $entry.sourcePath) "Manifest source exists: $($entry.installPath)"
     Assert-True ((Get-NormalizedDigest $entry.sourcePath) -eq $entry.digest) "Manifest digest matches: $($entry.installPath)"

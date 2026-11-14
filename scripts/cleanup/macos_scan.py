@@ -20,6 +20,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 from macos_ownership import (absolute, command, live, mcp_ownership, metadata,
                              no_processes, processes, read_metadata, within)
+from macos_report import Filesystems, coverage_summary, write_private
 
 MIB = 1024 * 1024
 MARKERS = (".claude", ".opencode", "opencode.json", "opencode.jsonc")
@@ -37,7 +38,7 @@ ELECTRON = {"Cursor": "Cursor", "Code": "Visual Studio Code", "Slack": "Slack",
 class Scanner:
     def __init__(self, home, cwd, env=None, application_roots=None, system_config=None,
                  max_seconds=45, max_entries=250000, max_depth=20, limit=100,
-                 minimum_bytes=50 * MIB, process=None, run=command, tool_probe=True):
+                 minimum_bytes=50 * MIB, process=None, run=command, tool_probe=True, space_probe=True):
         self.home, self.cwd = absolute(home), absolute(cwd)
         self.env = dict(os.environ if env is None else env)
         self.apps = application_roots if application_roots is not None else ["/Applications", self.path("Applications")]
@@ -47,6 +48,7 @@ class Scanner:
         self.limit, self.minimum = limit, minimum_bytes
         self.entries, self.coverage, self.targets, self.warnings = 0, [], {}, []
         self.run, self.tool_probe = run, tool_probe
+        self.space = Filesystems(self.bounded_command, self.check) if space_probe else None
         self.process = process
         self.app_names, self.app_labels, self.sources = {}, set(), set()
         self.project_scopes = {}
@@ -73,6 +75,8 @@ class Scanner:
 
     def children(self, path):
         result = []
+        record = {"path": absolute(path), "status": "discovering"}
+        self.coverage.append(record)
         try:
             with metadata.root_scope(absolute(path), self.check) as scope:
                 with scope.scandir() as children:
@@ -88,13 +92,16 @@ class Scanner:
                             self.record(os.path.join(path, entry.name), "linked-skipped")
                         else:
                             result.append((os.path.join(path, entry.name), info))
-            self.record(path, "complete-discovery")
+            record["status"] = "complete-discovery"
+        except metadata.BudgetExceeded as error:
+            record["status"] = str(error)
+            raise
         except metadata.BoundarySkipped as error:
-            self.record(path, error.status)
+            record["status"] = error.status
         except FileNotFoundError:
-            self.record(path, "absent")
+            record["status"] = "absent"
         except OSError:
-            self.record(path, "inaccessible")
+            record["status"] = "inaccessible"
         return sorted(result)
 
     def exists_metadata(self, path):
@@ -336,6 +343,9 @@ class Scanner:
                         self.sources.add((source, runtime, base))
         except metadata.BoundarySkipped as error:
             record["status"] = error.status
+        except metadata.BudgetExceeded as error:
+            record["status"] = str(error)
+            raise
         except FileNotFoundError:
             record["status"] = "absent"
         except OSError:
@@ -380,11 +390,15 @@ class Scanner:
         path = spec["path"]
         record = {"path": path, "status": "complete", "linkedSkipped": 0, "inaccessibleSkipped": 0}
         logical, allocated, unknown, newest, shared = 0, 0, 0, 0, 0
+        filesystem_id, root_device = None, None
         identities = set()
         def include(file_path, info):
             nonlocal logical, allocated, unknown, newest, shared
             newest = max(newest, info.st_mtime)
             if not stat.S_ISREG(info.st_mode) or metadata.is_link(info):
+                return
+            if info.st_dev != root_device:
+                record["crossFilesystemSkipped"] = record.get("crossFilesystemSkipped", 0) + 1
                 return
             identity = (info.st_dev, info.st_ino)
             if identity in identities:
@@ -405,11 +419,15 @@ class Scanner:
                 info = parent.metadata(os.path.basename(path))
                 if metadata.is_link(info):
                     raise metadata.BoundarySkipped("linked-skipped")
+                root_device = info.st_dev
+                if self.space is not None:
+                    filesystem_id = self.space.observe(path if stat.S_ISDIR(info.st_mode) else os.path.dirname(path), root_device)
                 newest = info.st_mtime
                 if stat.S_ISREG(info.st_mode):
                     include(path, info)
                 elif stat.S_ISDIR(info.st_mode):
-                    with closing(metadata.directory_entries(path, record, self.check, self.max_depth)) as entries:
+                    with closing(metadata.directory_entries(path, record, self.check, self.max_depth,
+                                                            root_device=root_device)) as entries:
                         for directory, name in entries:
                             self.entries += 1
                             with metadata.file_metadata(directory, name) as (file_path, info):
@@ -426,7 +444,7 @@ class Scanner:
             record["status"] = "absent"
         except OSError:
             record["status"] = "inaccessible"
-        if record.get("depthSkipped") or record["linkedSkipped"] or record["inaccessibleSkipped"]:
+        if record.get("depthSkipped") or record.get("crossFilesystemSkipped") or record["linkedSkipped"] or record["inaccessibleSkipped"]:
             record["status"] = "partial" if record["status"] == "complete" else record["status"]
         self.coverage.append(record)
         complete = record["status"] == "complete"
@@ -444,28 +462,41 @@ class Scanner:
             classification = "live-dependency"
         return {"path": path, "category": spec["category"], "owner": spec["owner"],
                 "classification": classification, "selectable": False, "coverage": record["status"],
-                "logicalBytes": logical if complete else None,
+                "filesystemId": filesystem_id, "logicalBytes": logical if complete else None,
                 "allocatedBytes": allocated if complete and not unknown else None,
                 "observedLogicalBytes": logical, "observedAllocatedKnownBytes": allocated,
                 "estimatedReclaimableBytes": None, "allocationMethod": "stat-blocks",
-                "sharedFiles": shared, "newestWrite": newest if complete else None,
+                "sharedFiles": shared, "unknownAllocationFiles": unknown,
+                "cloneSnapshotSharing": "unknown", "newestWrite": newest if complete else None,
                 "evidence": {**spec["evidence"], "registeredMcpOwner": owned},
                 "consequence": "Prefer supported in-app cache controls; any exact-path alternative needs fresh independent approval and checks." if spec["owner"] else "Read-only inventory; no deletion authority."}
 
     def scan(self):
         interrupted = None
-        try:
+        stages = [{"name": name, "status": "not-inspected"} for name in
+                  ("processes", "filesystem-baseline", "runtimes", "tools", "applications", "caches", "workspace", "registrations")]
+        def baseline():
+            if self.space is None:
+                self.warnings.append("filesystem-space-probing-disabled")
+                return
+            for path in dict.fromkeys(("/", self.home, self.workspace["root"] or self.cwd)):
+                self.space.observe(path)
+        def census():
             if self.process is None:
                 self.process = processes(self.bounded_command)
-            self.discover_runtimes()
-            self.discover_tools()
-            self.discover_apps()
-            self.discover_caches()
-            self.discover_workspace()
+        def registrations():
             self.config_sources()
             self.ownership = mcp_ownership(self.sources, self.cwd, self.home, self.env, self.check)
+        try:
+            for stage, action in zip(stages, (census, baseline, self.discover_runtimes, self.discover_tools,
+                                              self.discover_apps, self.discover_caches, self.discover_workspace, registrations)):
+                self.check()
+                stage["status"] = "started"
+                action()
+                stage["status"] = "finished-bounded-stage"
         except metadata.BudgetExceeded as error:
             interrupted = str(error)
+            stage["status"] = interrupted
             self.warnings.append("discovery-" + interrupted)
         self.process = self.process or no_processes()
         if not hasattr(self, "ownership"):
@@ -504,13 +535,19 @@ class Scanner:
                 "limits": {"maxSeconds": self.max_seconds, "maxEntries": self.max_entries,
                            "maxDepth": self.max_depth, "workspaceDepth": min(self.max_depth, 8), "limit": self.limit},
                 "entriesVisited": self.entries, "minimumBytes": self.minimum,
-                "coverage": self.coverage, "processCensus": self.process["summary"],
+                "coverage": self.coverage, "coverageSummary": coverage_summary(self.coverage),
+                "workspaceDescentExclusions": sorted(PRUNE),
+                "discoveryStages": stages, "processCensus": self.process["summary"],
+                "filesystemSpace": self.space.evidence() if self.space else
+                    {"filesystems": [], "scopes": [], "sharedContainers": [], "limitations": ["Space probing disabled; filesystem space is unknown."]},
                 "registeredMcp": self.ownership["summary"], "warnings": self.warnings,
                 "totals": {"observedLogicalBytes": self.global_logical,
                            "observedAllocatedKnownBytes": self.global_allocated,
                            "unknownAllocationFiles": self.global_unknown,
                            "estimatedReclaimableBytes": None},
                 "omittedMatches": max(0, len(material) - self.limit), "items": material[:self.limit],
+                "belowThresholdTargets": sum(row["coverage"] == "complete" and
+                    max(row["logicalBytes"] or 0, row["allocatedBytes"] or 0) < self.minimum for row in rows),
                 "limitations": ["Not a full-drive census or cleanup plan; all items are non-selectable evidence.",
                                 "No absence of runtime pins/consumers is proved; APFS clone/snapshot sharing is unknown.",
                                 "A manually cleared item is user-reported until remeasured; it proves no recovered-byte amount."]}
@@ -524,6 +561,7 @@ def main(argv=None):
     parser.add_argument("--system-config-root")
     parser.add_argument("--no-process-probe", action="store_true")
     parser.add_argument("--no-tool-probe", action="store_true")
+    parser.add_argument("--no-space-probe", action="store_true", help="Disclose unknown filesystem space; intended for isolated fixtures")
     parser.add_argument("--max-seconds", type=int, default=45)
     parser.add_argument("--max-entries", type=int, default=250000)
     parser.add_argument("--max-depth", type=int, default=20)
@@ -541,15 +579,9 @@ def main(argv=None):
                       system_config=args.system_config_root, max_seconds=args.max_seconds,
                       max_entries=args.max_entries, max_depth=args.max_depth, limit=args.limit,
                       minimum_bytes=args.minimum_mib * MIB, process=no_processes() if args.no_process_probe else None,
-                      tool_probe=not args.no_tool_probe)
+                      tool_probe=not args.no_tool_probe, space_probe=not args.no_space_probe)
     result = scanner.scan()
-    destination = absolute(args.output)
-    with metadata.root_scope(os.path.dirname(destination)) as parent:
-        fd = os.open(os.path.basename(destination), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                     0o600, dir_fd=parent.descriptor)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(result, handle, indent=2)
-            handle.write("\n")
+    write_private(args.output, result)
     print(json.dumps({"status": result["status"], "purpose": result["purpose"],
                       "items": len(result["items"]), "omittedMatches": result["omittedMatches"]}))
 

@@ -26,7 +26,7 @@ try {
     Invoke-WebRequest -Uri "$RepoUrl/scripts/windows/cleanup/$f" -OutFile "$stage\scripts\windows\cleanup\$f"
   }
 
-  $contracts = @('Cleanup.Contracts.psm1','build-plan.ps1','validate-plan.ps1','render-scan.ps1','render-result.ps1','macos_scan.py','macos_ownership.py','README.md',
+  $contracts = @('Cleanup.Contracts.psm1','build-plan.ps1','validate-plan.ps1','render-scan.ps1','render-result.ps1','macos_scan.py','macos_ownership.py','macos_report.py','README.md',
                  'schemas/scan.schema.json','schemas/plan.schema.json','schemas/result.schema.json','policies/windows.v1.json')
   foreach ($f in $contracts) {
     $destination = Join-Path "$stage\scripts\cleanup" ($f -replace '/', '\')

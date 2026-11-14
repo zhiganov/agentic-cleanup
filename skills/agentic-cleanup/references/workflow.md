@@ -116,7 +116,7 @@ if [ "$CLEANUP_ROOT" = "$agentic_data" ]; then
     skills/agentic-cleanup/SKILL.md
     skills/agentic-cleanup/references/workflow.md
     scripts/windows/cleanup/{wt_lookup.py,find_targets.py,find_outliers.py,file_audit.py,path_evidence.ps1,windows_maintenance.ps1,maintenance.ps1,assert_list.py,live_paths.ps1,registered_mcp.ps1,diskspace.ps1,run_wiztree.ps1,squirrel.ps1,appdata_orphans.ps1,winsdk.ps1,vs_orphans.ps1,scrub.ps1,scan.ps1,execute-plan.ps1,README.md}
-    scripts/cleanup/{Cleanup.Contracts.psm1,build-plan.ps1,validate-plan.ps1,render-scan.ps1,render-result.ps1,macos_scan.py,macos_ownership.py,README.md,schemas/scan.schema.json,schemas/plan.schema.json,schemas/result.schema.json,policies/windows.v1.json}
+    scripts/cleanup/{Cleanup.Contracts.psm1,build-plan.ps1,validate-plan.ps1,render-scan.ps1,render-result.ps1,macos_scan.py,macos_ownership.py,macos_report.py,README.md,schemas/scan.schema.json,schemas/plan.schema.json,schemas/result.schema.json,policies/windows.v1.json}
   )
   [ "$(wc -l < "$manifest" | tr -d ' ')" -eq "${#manifest_paths[@]}" ] || \
     { echo "STOP: installed cleanup manifest inventory is incomplete; reinstall /cleanup"; exit 1; }
@@ -222,7 +222,13 @@ Measure current disk space as the **scan baseline**, not the execution "before":
 
 - **Windows:** Resolve `$CLEANUP_SCRIPTS` (see *Helper scripts*), then run `powershell.exe -NoProfile -File "$(cygpath -w "$CLEANUP_SCRIPTS/diskspace.ps1")"`. Parse output: `free_gb total_gb used_pct`. This is the **scan baseline**; the summary's "before" is a fresh snapshot taken immediately before deletion in Step 6.
 
-- **macOS/Linux:** Run `df -Pk "$root"` for the workspace scan baseline. For
+- **macOS:** Use the committed scanner's `filesystemSpace` for the scan baseline,
+  then `macos_report.py snapshot` below for fresh per-operation/final observations.
+  It measures `fstatvfs` on a pinned no-follow existing directory, uses `df -Pk`
+  only to discover a device, validates that block device against `st_dev`, and
+  reads bounded `diskutil info -plist` metadata. A failed identity check is a gap,
+  not a different volume's measurement. Never substitute the root volume for Data.
+- **Linux:** Run `df -Pk "$root"` for the workspace scan baseline. For
   execution measurements run `df -Pk "<selected path or verified existing parent>"`
   on the selected target's filesystem. Parse available 1024-byte blocks and retain
   bytes (`available * 1024`); human-readable rounded values are display only.
@@ -307,7 +313,7 @@ python3 "$CLEANUP_CONTRACTS/macos_scan.py" --cwd "$PWD" \
 The entry point resolves the outermost workspace marker excluding home, reports
 a passed nearer marker, and rejects home/root fallbacks for workspace categories.
 It uses the existing `file_audit.py` POSIX descriptor scopes and allocation methods,
-not a duplicate walker. Both modules and that shared helper must belong to the
+not a duplicate walker. All Mac modules and that shared helper must belong to the
 same verified payload. JSON evidence is a new exclusive mode-0600 file; never
 overwrite another run's evidence. Clean only this run's scratch after reporting,
 including dry-run reports, using the governing scratch-lifecycle rules.
@@ -346,10 +352,61 @@ is no new cleanup executor or registry. Never feed it to `build-plan.ps1` or tur
 it directly into a deletion list. Category recipes still require independent
 eligibility, exact selection and refreshed execution checks. Incomplete static
 MCP ownership cannot be overridden with Git inactivity or an ad-hoc fallback.
-No APFS container/free-space inference or historical planner is added here.
+The scanner records actual target filesystem IDs for measured existing scopes.
+Nested mountpoints are not traversed in a target measurement; these omissions
+make its size partial. Explicit external cache roots are measured separately.
+Root, home and workspace baseline observations are associated with their devices,
+not assumed to be the same filesystem. APFS System/Data volume groups and shared
+containers are informational relationships, never independent pools to add up.
+Capacity/free readings are non-additive observations; quotas/reserves, snapshots,
+clones and purgeable sharing prevent a uniquely reclaimable estimate. Deduplicate
+file identities, but do not treat distinct clone identities as distinct physical
+extents. `stat-blocks` allocation is not unique recovery.
+
+Render the saved scan without another filesystem walk:
+
+```bash
+python3 "$CLEANUP_CONTRACTS/macos_report.py" render \
+  --input "<physical-private-run-directory>/macos-discovery.json"
+```
+
+The report includes per-filesystem observations, complete/partial/inaccessible/
+linked/budget/omitted scopes, unfinished discovery stages, skips, top-N and
+threshold exclusions. A finished bounded stage does not mean full coverage;
+read its per-scope gaps. Subtotals include observed identities in omitted rows;
+never sum overlapping/hardlinked item rows or relabel subtotals as recovery.
+Process/MCP limitations remain separate from size coverage.
+
+For each independently approved operation, choose exact existing retained parent
+directories on every affected filesystem. Take a new snapshot immediately before
+the operation (not the scan baseline), retain per-operation snapshots when several
+categories run, and repeat the same paths after that run's scratch is removed:
+
+```bash
+python3 "$CLEANUP_CONTRACTS/macos_report.py" snapshot \
+  --path "<retained-physical-parent>" --output "<private-durable-evidence>/before.json"
+# Approved operation and task-owned scratch removal occur separately.
+python3 "$CLEANUP_CONTRACTS/macos_report.py" snapshot \
+  --path "<same-retained-physical-parent>" --output "<private-durable-evidence>/after.json"
+python3 "$CLEANUP_CONTRACTS/macos_report.py" render \
+  --input "<private-durable-evidence>/after.json" --before "<private-durable-evidence>/before.json"
+```
+
+Each output is new/exclusive/private; repeat `--path` for separate filesystems
+(at most 32 paths, 16 devices, 15 seconds per snapshot). These observations do not
+clean anything or prove operation success. Write final evidence outside scratch;
+disclose its small write after measurement. A delta requires one verified matching
+volume UUID, method and valid chronological readings; otherwise it is unknown.
+Report signed available-byte change, including negative values, separately from
+operation outcome and selected-scope decrease. Shared-container deltas must not be
+summed. No causal attribution to cleanup/concurrent writers/regrowth/paging is
+established by a delta. This adds no history planner or automatic operation.
+
+Apple documents APFS shared space, volume groups, quotas and reserves in
+[Disk Utility guidance](https://support.apple.com/guide/disk-utility/add-delete-or-erase-apfs-volumes-dskua9e6a110/mac).
 
 Explicit `--home`, `--applications`, and `--system-config-root` arguments bound
-alternate read-only roots. `--no-process-probe`/`--no-tool-probe` disclose missing
+alternate read-only roots. `--no-process-probe`/`--no-tool-probe`/`--no-space-probe` disclose missing
 evidence, never absence; they cannot grant eligibility. They are useful for
 disposable fixtures, not substitutes for normal ownership evidence.
 
@@ -1597,8 +1654,9 @@ must be named explicitly after the user has seen their evidence and consequence.
 
 **First, snapshot free space NOW** — immediately before each selected operation —
 using **Free-space measurement (platform dispatch)** in Step 1: the target-drive
-Windows helper on Windows, or `df -Pk "<selected path or verified existing parent>"`
-on macOS/Linux. This fresh pre-operation value, **not** the scan baseline, is the
+Windows helper on Windows, `macos_report.py snapshot` on macOS, or
+`df -Pk "<selected path or verified existing parent>"` on Linux.
+This fresh pre-operation value, **not** the scan baseline, is the
 "before" for the summary. Record the filesystem and retained measurement parent
 so Step 7 can use the same scope after removal. Invalid measurements remain unknown.
 
@@ -1722,8 +1780,9 @@ requested durable evidence, remove the uniquely task-owned directory, and verify
 physical absence. Never delete the shared cleanup root or another session's data.
 
 **Re-measure** free space using **Free-space measurement (platform dispatch)**
-in Step 1: the target-drive helper on Windows, or `df -Pk "<verified existing parent>"`
-on macOS/Linux. Use each operation's recorded filesystem and retained parent,
+in Step 1: the target-drive helper on Windows, `macos_report.py snapshot` on macOS,
+or `df -Pk "<verified existing parent>"` on Linux.
+Use each operation's recorded filesystem and retained parent,
 after this run's scratch removal. Do not substitute `/`, a different drive or a
 rounded human-readable value for the recorded scope. If either paired measurement
 is invalid, report net change as unknown, not zero.

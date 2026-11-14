@@ -95,7 +95,7 @@ Homebrew cleanup executor; the skill intentionally provides none.
 
 ## macOS read-only discovery
 
-`macos_scan.py` and `macos_ownership.py` require existing Python 3.10+ and are
+`macos_scan.py`, `macos_ownership.py` and `macos_report.py` require existing Python 3.10+ and are
 distributed by both installers. They import the already-distributed file-audit
 helper's POSIX metadata/descriptor primitives rather than duplicating traversal.
 Optional depth/prune arguments leave its existing Windows audit defaults unchanged.
@@ -109,6 +109,7 @@ reported without persisting commands, config bodies or opaque server names.
 
 ```sh
 python3 scripts/cleanup/tests/test-macos-discovery.py -v
+python3 scripts/cleanup/tests/test-macos-accounting.py -v
 ```
 
 Fixtures exercise metadata-only discovery, bundle/cache ownership, registered-but-
@@ -117,3 +118,31 @@ private exclusive evidence. On native macOS, an isolated installer plus integrit
 preamble plus the installed CLI are exercised with temporary HOME/XDG/Claude roots
 and process/tool probes disabled (explicitly unknown, not absent). No real app,
 cache cleanup, user-runtime installation or dependency install is involved.
+
+`macos_report.py render --input <scan-or-space.json> [--before <space.json>]`
+renders saved private evidence without rescanning. It exposes coverage statuses,
+skips, interrupted/uninspected discovery stages, top-N/threshold omissions and
+identity-deduplicated observed subtotals. Item-row allocation is not additive or
+uniquely reclaimable; APFS clone/snapshot sharing remains unknown.
+
+`macos_report.py snapshot --path <exact-existing-retained-directory> --output <new.json>`
+records bounded per-device observations (repeat `--path`, at most 32 paths,
+16 devices, 15 seconds). The scanner uses the same collector for baseline and
+target filesystem association. `fstatvfs` on a pinned descriptor measures bytes;
+`df -Pk` discovers a block device whose `st_rdev` must match the directory's
+`st_dev` before `diskutil info -plist` supplies allowlisted identity/container
+metadata. Unsupported devices or identity failures remain explicit gaps. No
+mount/unmount, snapshot enumeration, purge, or filesystem mutation is performed.
+
+No aggregate capacity/free-space total is emitted. System/Data observations may
+share a container, while external devices remain separate. APFS quota/reserve,
+clone/snapshot and purgeable semantics prevent treating logical or allocated
+bytes as unique recovery. Nested mountpoints in measured targets are omitted
+and make coverage partial; shared traversal defaults are unchanged elsewhere.
+
+Fresh matching UUID/method/time observations produce a signed available-byte
+interval change, never a causal cleanup claim. Missing/duplicate/unidentified/
+invalid pairs stay unknown; shared-container deltas are not summed. The caller
+must keep operation status and selected-scope decrease separate, snapshot
+immediately before each operation, and take final observations after scratch
+removal. Save final evidence outside scratch and disclose its subsequent write.

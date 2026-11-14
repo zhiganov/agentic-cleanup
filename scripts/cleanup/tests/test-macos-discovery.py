@@ -45,7 +45,7 @@ class MacDiscovery(unittest.TestCase):
     def scanner(self, **kwargs):
         return scan.Scanner(str(self.home), str(self.work), env={}, application_roots=[str(self.apps)],
                             system_config=str(self.root / "managed"), process=self.process,
-                            tool_probe=False, minimum_bytes=1, **kwargs)
+                            tool_probe=False, space_probe=False, minimum_bytes=1, **kwargs)
 
     def item(self, report, path):
         return next(row for row in report["items"] if row["path"] == str(path))
@@ -283,7 +283,7 @@ class MacDiscovery(unittest.TestCase):
         self.assertEqual(set(bash_contracts), set(ps_contracts))
         workflow = (ROOT / "skills/agentic-cleanup/references/workflow.md").read_text()
         preamble = workflow.split("```bash\n", 1)[1].split("\n```", 1)[0]
-        for module in ("macos_scan.py", "macos_ownership.py"):
+        for module in ("macos_scan.py", "macos_ownership.py", "macos_report.py"):
             self.assertIn(module, bash_contracts)
             self.assertIn(module, preamble)
 
@@ -312,7 +312,7 @@ class MacDiscovery(unittest.TestCase):
         output = self.root / "scan.json"
         command = [sys.executable, str(payload / "scripts/cleanup/macos_scan.py"), "--home", str(self.home),
                    "--cwd", str(self.work), "--applications", str(self.apps), "--system-config-root", str(self.root / "managed"),
-                   "--no-process-probe", "--no-tool-probe", "--minimum-mib", "1", "--output", str(output)]
+                   "--no-process-probe", "--no-tool-probe", "--no-space-probe", "--minimum-mib", "1", "--output", str(output)]
         result = subprocess.run(command, env=env, capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
         report = json.loads(output.read_text())
@@ -325,6 +325,20 @@ class MacDiscovery(unittest.TestCase):
         repeated = subprocess.run(command, env=env, capture_output=True, text=True, timeout=10)
         self.assertNotEqual(repeated.returncode, 0)
         self.assertEqual(output.read_bytes(), before)
+        rendered = subprocess.run([sys.executable, str(payload / "scripts/cleanup/macos_report.py"),
+                                   "render", "--input", str(output)], env=env, capture_output=True, text=True, timeout=10)
+        self.assertEqual(rendered.returncode, 0, rendered.stderr)
+        self.assertIn("not a full-drive census", rendered.stdout)
+        self.assertIn("space is unknown", rendered.stdout)
+        snapshot = self.root / "space.json"
+        observed = subprocess.run([sys.executable, str(payload / "scripts/cleanup/macos_report.py"),
+                                  "snapshot", "--path", str(self.work), "--output", str(snapshot)],
+                                  env=env, capture_output=True, text=True, timeout=20)
+        self.assertEqual(observed.returncode, 0, observed.stderr)
+        space = json.loads(snapshot.read_text())["filesystemSpace"]
+        self.assertEqual(space["scopes"][0]["status"], "observed")
+        self.assertEqual(space["filesystems"][0]["identityStatus"], "verified-device")
+        self.assertEqual(stat.S_IMODE(snapshot.stat().st_mode), 0o600)
 
 
 if __name__ == "__main__":

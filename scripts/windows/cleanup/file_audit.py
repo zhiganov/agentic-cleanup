@@ -152,7 +152,7 @@ def root_scope(path, budget_check=lambda: None):
         yield parent
 
 
-def directory_entries(root, record, budget_check, max_depth=None, prune=None):
+def directory_entries(root, record, budget_check, max_depth=None, prune=None, root_device=None):
     """Depth-first walk, holding parent pins until all children are processed."""
     frames = []
     try:
@@ -175,6 +175,9 @@ def directory_entries(root, record, budget_check, max_depth=None, prune=None):
                     if not stat.S_ISDIR(info.st_mode) or is_link(info):
                         continue
                     path = os.path.join(parent.path, child.name)
+                    if root_device is not None and info.st_dev != root_device:
+                        record["crossFilesystemSkipped"] = record.get("crossFilesystemSkipped", 0) + 1
+                        continue
                     if prune is not None and prune(path):
                         record["prunedDirectories"] = record.get("prunedDirectories", 0) + 1
                         continue
