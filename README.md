@@ -128,6 +128,14 @@ claim, group-container/VM deletion, app stopping, runtime change or APFS reclaim
 estimate is introduced. Homebrew remains manual-only. Use supported in-app clearing
 where appropriate; user-reported manual clearing is not measured recovery.
 
+The committed `macos_report.py` renders saved evidence with explicit coverage
+gaps and per-filesystem space observations. Actual target devices, APFS shared
+containers/System-Data groups and external volumes are kept distinct; capacity
+and free space are never summed across shared volumes. Logical/allocation
+subtotals are not unique recovery estimates, including for clones/snapshots.
+Read-only snapshots support fresh per-operation and post-scratch comparisons;
+signed net changes can be negative and do not prove what caused them.
+
 ## What It Scans (32 categories)
 
 The skill detects the OS at runtime and only scans categories that apply.
