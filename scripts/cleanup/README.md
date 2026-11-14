@@ -66,3 +66,16 @@ automatic full suite): `test-file-audit.py`, `test-build-cache.ps1`, and
 hardlinks, allocation failures, links, coverage/top-N, disappearing caches,
 fresh writes, retained siblings, signed disk deltas, log locks, servicing waits,
 analysis freshness, and worker outcome interpretation.
+
+Unix/macOS instruction consistency checks:
+
+```sh
+python3 scripts/cleanup/tests/test-unix-safety-recipes.py
+```
+
+These check permission-denial handling, closed-owner/liveness requirements,
+protected history and platform-specific measurement instructions across active
+skill/portable/documentation consumers. They include a disposable POSIX fixture
+showing that an open, advisory-locked file can be unlinked. They do not invoke a
+cleanup executor, touch workstation caches or establish end-to-end Unix cleanup
+validation.

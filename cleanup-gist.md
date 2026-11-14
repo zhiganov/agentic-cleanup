@@ -6,13 +6,13 @@ The goal: reclaim space without trashing anything you care about. Each category 
 
 ## The algorithm
 
-1. **Measure.** Run `df -h /` (or the equivalent) and store the "before" free-space number.
+1. **Measure.** On macOS/Linux use `df -Pk` on the workspace filesystem for a scan baseline; on Windows use the target drive's available-space measurement. Keep raw bytes, not rounded display values. This baseline is not the execution "before".
 2. **Detect workspace root.** Walk up from the current directory until you find a marker (`.git`, `package.json`, or a known config dir). This becomes the scan root for project-scoped categories.
 3. **Scan each category** below. Skip ones that don't apply (tool not installed, path doesn't exist, total under the threshold). For each, collect: a short label, the matching items, total size, and the paths needed to delete them.
 4. **Build a table** sorted by size descending. Number rows 1..N. Show each row's category, a 2-3 item preview, and size. Print disk free/total/% at the top.
 5. **Ask which to clean.** Wait for the user to pick numbers, `all`, or `none`. Do not assume.
-6. **Execute** only the selected categories. Show progress per category. Track failures.
-7. **Re-measure** and print "Freed X GB ([before] → [after])". List any categories that failed.
+6. **Execute** only the selected categories after refreshing their safety checks. Immediately before each operation, measure its target filesystem (`df -Pk "<selected path or verified existing parent>"` on macOS/Linux; the target drive on Windows), recording a parent that will remain afterward. Show progress and track failures.
+7. **Re-measure** the same recorded filesystem after removing only this run's scratch. Report signed net free-space change separately from operation success. Invalid paired measurements mean unknown recovery, never zero. List any categories that failed.
 
 That's the whole shape. Below are the categories worth checking and the rules that keep the LLM from doing something dumb.
 
@@ -76,9 +76,10 @@ Measure and report. Skip if total is under 5 MB. `rm -rf` the contents; the OS w
 
 ### AI tool debris
 
-Coding assistants leave a lot of state behind. Most of it is recoverable from history; the rest is debug noise.
+Distinguish disposable diagnostics from protected conversation/session logs and
+file-edit history. Age does not make those records disposable.
 
-- **Claude Code:** `~/.claude/debug/`, `~/.claude/file-history/`, `~/.claude/telemetry/`. Also `~/.claude/projects/*/<session>.jsonl` files older than 28 days, exact stale `mcp-logs-*` directories under the Claude cache, and superseded `~/.local/share/claude/versions/<semver>` directories. Resolve `claude --version` first and always preserve both its exact directory and the newest installed version.
+- **Claude Code:** selected `~/.claude/debug/` and `~/.claude/telemetry/`, exact stale `mcp-logs-*` diagnostic directories under the Claude cache, and qualified superseded `~/.local/share/claude/versions/<semver>` entries. Preserve current, newest, pinned and live entries; if selectors or ownership cannot be established without launching an updater, keep versions review-only. Never clean conversation/session logs or file-edit history.
 - **Cursor:** `~/Library/Application Support/Cursor/Cache` (macOS), `~/.config/Cursor/Cache` (Linux). Same for the `CachedData` subdir.
 - **GitHub Copilot:** the LSP server caches under each editor's extension dir; usually small but worth a glance.
 
@@ -86,15 +87,19 @@ Coding assistants leave a lot of state behind. Most of it is recoverable from hi
 - `~/.claude/memory/`, `~/.claude/projects/*/memory/`
 - `~/.claude/commands/`, `~/.claude/skills/`
 - `~/.claude/settings*.json`, `~/.claude/history.jsonl`
+- `~/.claude/projects/*/*.jsonl`, `~/.claude/file-history/`, regardless of age
 
 ### App caches
 
-- **macOS:** scan `~/Library/Caches/` for subdirectories larger than 50 MB. Report each with its parent app name. Common culprits: Slack, Discord, Spotify, JetBrains IDEs, Xcode (`~/Library/Developer/Xcode/DerivedData/` — easily multiple GB; nuke it without ceremony, Xcode rebuilds).
+- **macOS:** scan `~/Library/Caches/` for subdirectories larger than 50 MB. Report each with its parent app name. Common culprits: Slack, Discord, Spotify, JetBrains IDEs. Xcode's `~/Library/Developer/Xcode/DerivedData/` is build output, not a generic app cache; preserve active/fresh builds.
 - **Linux:** scan `~/.cache/` for subdirectories larger than 50 MB.
 
 For each large subdirectory, the clean command is `rm -rf <path>/*` (contents only — don't remove the directory the app expects to exist).
 
-**Warn the user to close the app first.** Files held open will fail silently or, worse, corrupt the cache index.
+**The app must be closed first.** Immediately before selected removal, refresh
+owner/process and live-path checks. Unknown ownership or incomplete evidence stays
+review-only. Open or locked files can still be unlinked on Unix; do not rely on
+locks to protect a running owner, kill holders or change permissions.
 
 ### Browser caches
 
@@ -103,7 +108,11 @@ For each large subdirectory, the clean command is `rm -rf <path>/*` (contents on
 - Firefox: `~/Library/Caches/Firefox/Profiles/<id>/cache2` (macOS), `~/.cache/mozilla/firefox/<id>/cache2` (Linux).
 - Safari: `~/Library/Caches/com.apple.Safari/`.
 
-`rm -rf <path>/*` for each. Tell the user to close the browser first (locked files just get skipped, but it's cleaner). Logged-in sessions are stored separately and are *not* affected.
+Clear only the exact selected cache contents, preserving roots, after confirming
+the browser is closed and refreshing owner/process and live-path checks. Open or
+locked files are not a deletion veto on Unix. Incomplete evidence stays review-only;
+report actual access failures/partial results. Never broaden to a browser profile,
+cookies or logged-in session data.
 
 ### Downloaded models and browser automation
 
@@ -132,7 +141,8 @@ These are the rules that turn "LLM with shell access" from terrifying into usefu
 - **Never auto-delete.** Every category gets shown in the report; nothing is removed until the user picks numbers.
 - **Per-item confirmation for ambiguous categories.** If you're guessing at orphaned AppData/Library directories (i.e., trying to figure out if an app is uninstalled), show each candidate and let the user confirm. Don't bulk-delete.
 - **Read `.gitignore` before deleting `dist/`, `build/`, `out/`.** If the project commits its build output, deleting it is destructive.
-- **Skip locked files silently.** If a browser or app is running, you'll get permission errors. Log them, keep going.
+- **Never rely on locks to protect live data.** Confirm app/browser owners are closed and refresh exact selected paths immediately before removal. Incomplete liveness evidence stays review-only; report access failures and partial results without killing holders or changing permissions.
+- **Respect permission and safety-hook denials.** Stop the blocked operation. Never change syntax, wrappers or tools to evade a denial; a helper or another spelling is not policy approval. Resolve the denial before continuing that operation.
 - **Don't touch system update files** unless explicitly requested. Disk Cleanup / Storage Sense exists on every OS for that reason.
 - **No `--no-preserve-root`, no `-rf /`, no operations on directories you didn't measure first.** If you can't `du` it, you don't `rm` it.
 

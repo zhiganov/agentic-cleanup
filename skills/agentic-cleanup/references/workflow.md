@@ -210,13 +210,25 @@ pwsh -NoProfile -File "$(cygpath -w "$CLEANUP_CONTRACTS/render-scan.ps1")" \
 
 This preview is read-only. It covers the first migrated categories: npm cache with `_npx` protection, user temp with runtime scratch exclusions, inactive build artifacts with freshness evidence, Config.Msi, and manual-only Windows.old. It never builds a plan or executes cleanup. Continue with the existing full-category path for ordinary `/cleanup` and `/cleanup --dry-run` until the remaining categories are migrated.
 
-Measure current disk space ("before" snapshot for the final summary):
+#### Free-space measurement (platform dispatch)
+
+Measure current disk space as the **scan baseline**, not the execution "before":
 
 - **Windows:** Resolve `$CLEANUP_SCRIPTS` (see *Helper scripts*), then run `powershell.exe -NoProfile -File "$(cygpath -w "$CLEANUP_SCRIPTS/diskspace.ps1")"`. Parse output: `free_gb total_gb used_pct`. This is the **scan baseline**; the summary's "before" is a fresh snapshot taken immediately before deletion in Step 6.
 
-- **macOS/Linux:** Run `df -h /` and parse the output for free space, total size, and usage percentage.
+- **macOS/Linux:** Run `df -Pk "$root"` for the workspace scan baseline. For
+  execution measurements run `df -Pk "<selected path or verified existing parent>"`
+  on the selected target's filesystem. Parse available 1024-byte blocks and retain
+  bytes (`available * 1024`); human-readable rounded values are display only.
+  No PowerShell or Windows helper is required on Unix.
 
-Store the "before" free space value for the summary.
+For each selected operation, record the target filesystem and an existing parent
+that will remain after cleanup. On Windows pass that target's drive to the helper
+rather than assuming the system drive. Repeat the same platform-specific method
+on the same filesystem immediately before execution and after that run's scratch
+removal. Keep different filesystems separate. Failed, inaccessible or malformed
+measurements are **unknown, never zero**; do not claim a recovery delta without a
+valid matching pair. Step 6 and Step 7 use this dispatch, not a Windows-only call.
 
 **Take a session census (Windows).** Run `powershell.exe -NoProfile -File "$(cygpath -w "$CLEANUP_SCRIPTS/live_paths.ps1")" -Summary > /dev/null` and report the stderr census to the user before scanning:
 
@@ -525,14 +537,13 @@ Collect: cache size.
 
 Measure sizes of these generated-data directories:
 - `~/.claude/debug/`
-- `~/.claude/file-history/`
 - `~/.claude/telemetry/`
 
 Use WizTree lookup or fallback PowerShell/du for sizes.
 
-Count and measure old session logs:
-- **macOS/Linux:** `find ~/.claude/projects -maxdepth 2 -name "*.jsonl" -mtime +28`
-- **Windows:** PowerShell to find `.jsonl` files under `~/.claude/projects/*/` with LastWriteTime older than 28 days
+Conversation/session logs and file-edit history are **not debris**. Do not offer
+`~/.claude/projects/*/*.jsonl` or `~/.claude/file-history/` for cleanup, regardless
+of age. Diagnostic logs must be distinguished from these protected records.
 
 Also scan these bounded Claude-generated targets:
 
@@ -556,9 +567,11 @@ Also scan these bounded Claude-generated targets:
 - `~/.claude/skills/` (skills)
 - `~/.claude/settings*.json` (settings)
 - `~/.claude/history.jsonl` (conversation history)
+- `~/.claude/projects/*/*.jsonl` (conversation/session logs, including old logs)
+- `~/.claude/file-history/` (file-edit history)
 
-Collect: breakdown (debug X MB, file-history Y MB, telemetry Z MB, N old
-sessions W MB, MCP diagnostics M MB, superseded versions V MB), total size.
+Collect: breakdown (debug X MB, telemetry Z MB, MCP diagnostics M MB,
+superseded versions V MB), total size. Exclude protected history from totals.
 
 ---
 
@@ -926,7 +939,9 @@ flag and signed before/after net disk change. Do not infer bytes from package co
 
 Measure `C:\Config.Msi` (WizTree or fallback PowerShell). Skip if it does not exist or is < 100 MB.
 
-Clean command (Step 6): **Elevated.** `Remove-Item "C:\Config.Msi" -Recurse -Force` — run via the elevated batch / a `.ps1` file, not inline, since the path-protection hook blocks inline system-path deletes.
+Clean command (Step 6): **Elevated.** Only an exact selected `C:\Config.Msi`
+operation through a policy-approved trusted executor, after installer/liveness
+checks. Resolve an inline denial rather than hiding the operation in a script.
 
 Collect: size.
 
@@ -1027,7 +1042,20 @@ Skipped on Windows. Some categories apply to both Linux and macOS; others target
 
 Use `du -sm` to measure each subdirectory. Report only those exceeding 50 MB.
 
-**Self-protection:** On Linux/macOS, the currently-running Claude Code session caches state in `~/.cache/claude-cli-nodejs/` (Linux) or the equivalent on macOS. Deleting it mid-session is usually harmless but can disrupt shell snapshots in flight — flag it in the report and recommend deselecting it unless the user explicitly wants it cleared.
+Before offering a cache, establish its owner and exact cache scope. Before any
+selected removal, confirm the owner is closed and refresh owner/process and
+live-path evidence. Unknown ownership or incomplete evidence stays review-only. Preserve
+the selected cache root; never broaden a cache operation to app/profile data.
+Open or locked files can still be unlinked on Unix; do not rely on locks or an
+expected permission error to protect a running app. Do not close apps, kill
+holders or change permissions to make a cache deletable.
+
+**Self-protection:** On Linux/macOS, the currently-running Claude Code session
+caches state in `~/.cache/claude-cli-nodejs/` or the platform equivalent. Treat
+the active runtime cache as a live dependency, not a selectable app-cache target.
+An explicit category selection does not override liveness protection. Only exact
+stale diagnostic subdirectories meeting the Claude debris recipe's independent
+freshness and liveness checks can be considered; never clear the workspace parent.
 
 Collect: app/directory name, size, full path.
 
@@ -1233,7 +1261,11 @@ done
 
 Measure each discovered path with `du -sm`. Group by browser (sum across profiles + cache subtypes). Skip browsers with < 50 MB. Skip the category if total across all browsers < 100 MB.
 
-**IMPORTANT:** Warn the user to close the affected browser(s) before cleaning. Locked files (from a running browser) will silently fail to delete.
+**IMPORTANT:** The affected browser(s) must be closed before cleaning. Refresh
+owner/process and live-path checks before each exact selected cache operation;
+incomplete evidence stays review-only. Open or locked files can still be unlinked
+on Unix. Do not rely on locks, kill holders or change permissions. Preserve cache
+roots and report actual access failures/partial results.
 
 Clean command (Step 6): `find <each cache directory path> -mindepth 1 -delete` per discovered cache dir (preserve the directory itself — the browser recreates it on next launch).
 
@@ -1299,7 +1331,12 @@ done
 
 Measure each discovered path with `du -sm`. Group by browser (sum across profiles + cache subtypes). Skip browsers with < 50 MB. Skip the category if total across all browsers < 100 MB.
 
-**IMPORTANT:** Warn the user to close the affected browser(s) before cleaning. macOS browsers hold cache files via `fcntl` locks while running, and `find -delete` will skip locked files silently — the cleanup will appear partially successful but leave the bulk in place.
+**IMPORTANT:** The affected browser(s) must be closed before cleaning. Refresh
+owner/process and live-path checks for each exact selected cache immediately
+before execution; incomplete coverage stays review-only. Open or locked files
+can still be unlinked on Unix, so `fcntl` locks are not a deletion veto and must
+not be expected to cause safe skips. Do not kill holders or change permissions.
+Report actual access failures and partial results rather than hiding them.
 
 Clean command (Step 6): `find <each cache directory path> -mindepth 1 -delete` per discovered cache dir (preserve the directory itself — the browser recreates it on next launch).
 
@@ -1373,19 +1410,30 @@ must be named explicitly after the user has seen their evidence and consequence.
 
 ### Step 6: Execute Cleanup
 
-**First, snapshot free space NOW** — immediately before any deletion — with `diskspace.ps1` (`powershell.exe -NoProfile -File "$(cygpath -w "$CLEANUP_SCRIPTS/diskspace.ps1")"`). This pre-deletion value, **not** the Step 1 scan baseline, is the "before" for the summary: between the scan and now the run wrote the ~200 MB WizTree CSV (and other processes may have written too), so the Step 1 value understates the result.
+**First, snapshot free space NOW** — immediately before each selected operation —
+using **Free-space measurement (platform dispatch)** in Step 1: the target-drive
+Windows helper on Windows, or `df -Pk "<selected path or verified existing parent>"`
+on macOS/Linux. This fresh pre-operation value, **not** the scan baseline, is the
+"before" for the summary. Record the filesystem and retained measurement parent
+so Step 7 can use the same scope after removal. Invalid measurements remain unknown.
 
 For each selected category, execute the appropriate cleanup.
 
-**Hook-safe deletion (macOS/Linux):** Common safety hooks (e.g. `block-dangerous-commands.js`) block any `rm -rf` whose target starts with `/` or `~` — which is every absolute path. When you hit such a block, substitute one of these equivalents:
+**Permission and safety-hook denials (all platforms):** Stop the blocked
+operation. Never change syntax, wrappers or tools to evade a denial: translating
+`rm` to `find -delete`, hiding deletion inside a script, or choosing another
+launcher does not grant permission. Obtain policy resolution before continuing
+that operation; do not retry it through another route while the denial remains.
+The command table describes mechanisms, not permission to execute them.
 
-- Wholesale directory removal — was `rm -rf <abs_path>` → use `find <abs_path> -mindepth 1 -delete && rmdir <abs_path>`
-- Contents only (keep dir, app recreates it) — was `rm -rf <abs_path>/*` → use `find <abs_path> -mindepth 1 -delete`
-- Single file — `rm -f <abs_path>` is fine (no recursion).
-
-The `find -delete` form is at least as safe (it errors on typos rather than recursing) and doesn't trigger the hook pattern. The table below shows the `rm -rf` form for readability — translate before running on Linux/macOS if a safety hook is installed.
-
-**Hook-safe deletion (Windows):** This workstation has a path-protection PreToolUse hook that blocks inline `Remove-Item` and `cmd /c rmdir /s /q` targeting `%LOCALAPPDATA%` / `%USERPROFILE%` / system paths ("Remove-Item on system path … is blocked"; it even misparses flags like `/s` as a path), and a block aborts the **whole** command so nothing in it runs. The committed **`scrub.ps1`** (see *Helper scripts*) is the supported path: write the target paths (one per line) to a list file, then `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$CLEANUP_SCRIPTS/scrub.ps1")" -ListFile "$(cygpath -w <listfile>)"`. The launcher carries no delete keywords so the hook passes; `scrub.ps1` reports `OK`/`PARTIAL`/`FAIL`/`SKIP` per path and uses `rmdir /s /q` for dir trees. User-owned targets (node_modules, `%LOCALAPPDATA%` app caches, the scratch dir) need no elevation this way; only `C:\Windows\*` paths need the elevated variant below.
+**Approved Windows executors:** Use the committed structured executor for
+migrated categories. For supported legacy categories, write exact selected paths
+to a list, apply the refreshed `assert_list.py` gates below, and invoke the
+committed `scrub.ps1` only when that executor and scope are permitted by the
+active policy. A launcher without deletion keywords is not evidence of approval.
+It reports `OK`/`PARTIAL`/`FAIL`/`SKIP` per path. User-owned paths do not inherently
+need elevation; protected system targets still require the trusted elevated
+worker described below. Never use a helper to bypass a blocked operation.
 
 **Filter paths with `grep -F`, never bare `grep` — and never `grep -iF`.** Windows paths are backslash-laden and every regex-flavoured tool reads a backslash as an escape. `grep -v '\Claude\'` does not exclude Claude — it **errors** with `grep: Trailing backslash` and matches nothing, and when the output is redirected the exit status is lost, so it appends nothing and looks fine. Use `grep -vF` / `grep -cF` (fixed-string) for **all** path filtering.
 
@@ -1422,7 +1470,7 @@ It does **not** subsume `find_targets.py`'s `backs_mcp_server()`. A book-power M
 
 *Why a committed script and not an inline check* (2026-07-16): the run **did** verify, and the verification was broken **the same way as the bug**. `grep -v '\Claude\'` silently appended nothing, so the entire Electron category — 42 dirs, ~1.4 GB, the largest selection — vanished from the delete list while `wc -l` reported a healthy 197 lines. The check `grep -c 'AppData\Roaming' "$LIST"` then died on the identical trailing backslash and printed `0` next to a "must be 0" row for a *different* category, so the wrong answer read as a passing test. A check that fails identically to the thing it checks is worse than no check. `assert_list.py` matches fixed-string off argv, in code, and is regression-tested against that exact 197-line list.
 
-**NEVER pass `npm-cache` or `_npx` itself to `scrub.ps1`.** `%LOCALAPPDATA%\npm-cache\_npx\` is where `npx -y <pkg>` materialises packages, and **live MCP servers execute from inside it** — on a machine running Claude Code you will typically find `node …\npm-cache\_npx\…\harmonica-mcp\dist\index.js` (and context7, shadcn, etc.) in the process list, once per running session. A whole-directory `rmdir /s /q` deletes those servers' code out from under every running session. Use **`npm cache clean --force`** for `_cacache`. The only supported `_npx` removal is an individually listed immediate child that passed the 7-day age test and a refreshed live-path veto. Validate that every target's canonical parent is exactly `_npx`, then run `assert_list.py --require '\_npx\' --live <fresh-live-paths>` before `scrub.ps1`. Observed 2026-07-16: scrub on the cache root returned `Access is denied` **because** two sessions held it; the lock was the only thing preventing the damage. Do not "fix" that failure by retrying harder or killing the holder. If you must hand-roll a delete script instead, write it with the Write tool (not a shell heredoc) so its delete commands never hit the hook, and never name the worker function `Del`/`RD`/`RM`.
+**NEVER pass `npm-cache` or `_npx` itself to `scrub.ps1`.** `%LOCALAPPDATA%\npm-cache\_npx\` is where `npx -y <pkg>` materialises packages, and **live MCP servers execute from inside it** — on a machine running Claude Code you will typically find `node …\npm-cache\_npx\…\harmonica-mcp\dist\index.js` (and context7, shadcn, etc.) in the process list, once per running session. A whole-directory `rmdir /s /q` deletes those servers' code out from under every running session. Use **`npm cache clean --force`** for `_cacache`. The only supported `_npx` removal is an individually listed immediate child that passed the 7-day age test and a refreshed live-path veto. Validate that every target's canonical parent is exactly `_npx`, then run `assert_list.py --require '\_npx\' --live <fresh-live-paths>` before `scrub.ps1`. Observed 2026-07-16: scrub on the cache root returned `Access is denied` **because** two sessions held it; the lock was the only thing preventing the damage. Do not "fix" that failure by retrying harder or killing the holder. Never replace a denied operation with an ad-hoc script. Preserve the committed executor's policy and path gates; its worker must not be named `Del`/`RD`/`RM` (see the alias trap below).
 
 **Alias trap (Windows/PowerShell):** `del`, `rd`, and `rm` are aliases for `Remove-Item`, and aliases outrank functions in command resolution. Never name a delete-helper function `Del` / `RD` / `RM` — the alias shadows it, the function body (delete + logging) silently never runs, and it looks like it "succeeded" (sub-second, no freed space, missing log lines). Use a non-aliased name such as `Scrub`. Inside the `.ps1`, `cmd /c rmdir /s /q "<path>"` is fastest for whole-dir removal (e.g. a superseded Squirrel `app-*` version, an individually validated stale `_npx` child, or an inactive project's `node_modules`); use `Remove-Item "<dir>\*" -Recurse -Force` for contents-only where the dir must survive (e.g. `C:\Windows\Temp`). **Do not reach for the fast whole-dir form on `npm-cache` or `_npx` itself** — see the warning above.
 
@@ -1446,14 +1494,14 @@ distinct evidence. An empty/missing result does not prove elevation was declined
 | yarn v1 cache | `yarn cache clean` |
 | yarn v2+ cache | `yarn cache clean --all` |
 | pip cache | `pip cache purge` (or `pip3 cache purge`) |
-| Claude Code debris | Clear `debug`/`file-history`/`telemetry`, delete selected old `.jsonl`, exact stale `mcp-logs-*` directories, and superseded version directories; preserve memories/settings/history plus the running and newest Claude versions |
+| Claude Code debris | Clear selected `debug`/`telemetry`, exact stale `mcp-logs-*` directories, and qualified superseded version entries; preserve all conversation/session logs, file-edit history, memories/settings, and the running/newest Claude versions |
 | Downloaded model caches | Clear only `~/.cache/huggingface` after model-process and live-path vetoes; dependent models re-download |
 | Browser automation downloads | Clear only selected `ms-playwright` or `~/.cache/puppeteer` contents after the live-path veto; browsers re-download |
 | Crash dumps | `rm -rf <CrashDumps path>/*`. LiveKernelReports: **elevated** `Remove-Item "C:\Windows\LiveKernelReports\*" -Recurse -Force` |
 | Build artifacts | Windows: committed scan/plan/executor, refreshing 24-hour freshness, liveness and links. For exact `.next/cache` contents use `scan.ps1 -BuildCacheOnly`; preserve root and siblings. Unix: recheck the same gates before the exact selected removal. |
 | Docker (images) | `docker image prune -f` |
 | Docker (build cache) | `docker builder prune -f` |
-| App caches | `rm -rf <each large cache directory path>` |
+| App caches | Exact selected cache contents only, preserving the root, after confirming the owner is closed and refreshing owner/process and live-path evidence; unknown or incomplete ownership stays review-only. Open/locked files are not a safety veto |
 | Windows.old | **Cannot be deleted via CLI.** Instruct the user to use Settings > System > Storage > Temporary files > Previous Windows installation(s), or Disk Cleanup as Administrator. |
 | Delivery Optimization | Use supported Settings > Storage > Temporary files; no implicit service stops. |
 | Windows Temp files | **Elevated for system temp.** User temp: PowerShell `Get-ChildItem "$env:TEMP" | Where-Object { $_.Name -notin @('agentic-cleanup','claude-cleanup','claude','opencode') } | Remove-Item -Recurse -Force` — all four exclusions are required; `claude` and `opencode` are live runtime scratch directories, and deleting either can kill the running command. System temp: **elevated** `Remove-Item "$env:SystemRoot\Temp\*" -Recurse -Force` |
@@ -1474,9 +1522,9 @@ distinct evidence. An empty/missing result does not prove elevation was declined
 | Trash (Linux/macOS) | `find <trash_path> -mindepth 1 -delete` for each location. Linux primary: `~/.local/share/Trash` (recreate `files/` + `info/` subdirs after). macOS primary: `~/.Trash`. Confirm before clearing. |
 | Dev tool caches (Linux/macOS) | Per-tool: cargo `cargo cache --autoclean` (or `find -delete` on `~/.cargo/registry` and `~/.cargo/git/db`) · Go **`go clean -modcache`** (NOT `find -delete` — module cache is read-only) · uv `uv cache clean` · Poetry `poetry cache clear --all -n .` · ccache `ccache -C` · others `find <path> -mindepth 1 -delete` |
 | Orphaned config/data dirs (Linux) | `find <orphan_path> -mindepth 1 -delete && rmdir <orphan_path>` per orphan — **requires per-item user confirmation** (false positives common from portable / curl-installed apps). |
-| Browser caches (Linux) | `find <each cache directory path> -mindepth 1 -delete` per discovered Chromium-family cache (preserve dir, browser recreates contents). Warn user to close browsers first. Firefox cache is covered by App Caches via `~/.cache/mozilla`. |
+| Browser caches (Linux) | Exact selected cache contents only, preserving roots, after confirming browsers are closed and refreshing owner/process and live-path checks. Open/locked files are not a safety veto; incomplete evidence stays review-only. Firefox cache candidates are discovered by App Caches via `~/.cache/mozilla`. |
 | System pkg manager cache (macOS) | Homebrew: `brew cleanup -s` (add `--prune=all` for more aggressive). MacPorts: **requires sudo**, run `sudo port reclaim` in the user's terminal (interactive). |
-| Browser caches (macOS) | `find <each cache directory path> -mindepth 1 -delete` per discovered Chromium-family cache under `~/Library/Application Support/`. Preserve dir (browser recreates contents). Close browsers first — `fcntl`-locked files skip silently. Safari/Firefox covered by App Caches via `~/Library/Caches/`. |
+| Browser caches (macOS) | Exact selected cache contents only under `~/Library/Application Support/`, preserving roots, after confirming browsers are closed and refreshing owner/process and live-path checks. Open/locked files are not a deletion veto; incomplete evidence stays review-only. Safari/Firefox cache candidates are discovered by App Caches. |
 
 **Show progress** as each category is cleaned: what's being deleted and confirmation when done.
 
@@ -1488,7 +1536,12 @@ distinct evidence. An empty/missing result does not prove elevation was declined
 requested durable evidence, remove the uniquely task-owned directory, and verify
 physical absence. Never delete the shared cleanup root or another session's data.
 
-**Re-measure** free space with `diskspace.ps1` (same helper as Step 1).
+**Re-measure** free space using **Free-space measurement (platform dispatch)**
+in Step 1: the target-drive helper on Windows, or `df -Pk "<verified existing parent>"`
+on macOS/Linux. Use each operation's recorded filesystem and retained parent,
+after this run's scratch removal. Do not substitute `/`, a different drive or a
+rounded human-readable value for the recorded scope. If either paired measurement
+is invalid, report net change as unknown, not zero.
 
 **Compute `freed = after_free − before_free`, where `before_free` is the PRE-DELETION snapshot from Step 6** — not the Step 1 scan baseline. Using the Step 1 value understates the result because the run itself consumed ~200 MB (the CSV) between scan and deletion.
 

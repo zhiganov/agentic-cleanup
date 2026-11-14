@@ -91,11 +91,12 @@ slice. Elevated operations use the same plan and validator but execute only
 when `execute-plan.ps1` is already running in a trusted elevated process;
 otherwise they return `manual-required`.
 
-**Hook-safe deletion.** `scrub.ps1` exists because this workstation's path-protection
-PreToolUse hook scans the command *string* and aborts the whole command if it sees an
-inline `Remove-Item`/`rmdir` on a protected path. The launcher carries no delete keywords,
-so the deletes (inside the file) pass. The worker is named `Scrub`, never `Del`/`RD`/`RM`
-(those are `Remove-Item` aliases that would shadow a same-named function).
+**Policy-approved deletion.** Use the committed structured executor or supported
+legacy `scrub.ps1` only when the active policy permits its executor and exact
+scope, after the required refreshed path/liveness gates. A launcher without
+deletion keywords is not evidence of approval. Stop a denied operation; never
+change syntax, wrappers or tools to evade it. The worker is named `Scrub`, never
+`Del`/`RD`/`RM` (PowerShell aliases that shadow a same-named function).
 
 Canonical skill source is also published at `github.com/zhiganov/agentic-cleanup`
 (`cleanup-gist.md`); keep that copy in sync when these change.

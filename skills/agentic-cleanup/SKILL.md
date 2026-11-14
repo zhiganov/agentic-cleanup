@@ -27,13 +27,17 @@ This entry point governs safety, selection, accounting, and newer helper usage.
   registered MCP servers, personal files, and live runtime state. Git inactivity,
   apparent orphanhood, and unlocked files do not establish that data is dead.
 - Protect memories, commands, skills, settings, history, and current/newest
-  runtime installations. Never offer `hiberfil.sys`, paging-file deletion,
+  runtime installations. Conversation/session logs and file-edit history are
+  protected regardless of age. Never offer `hiberfil.sys`, paging-file deletion,
   manual WinSxS removal, manual Office/Edge/WebView2 removal, or service killing.
 - Never open personal file contents or hydrate cloud files to measure them.
   Personal audits and unknown outliers are review-only. Do not follow junctions
   or links to expand an approved scope. Show incomplete coverage explicitly.
 - Own every task worker through completion. Do not stop other apps, services,
   builds or agents to make a target deletable. Do not reboot or use `/ResetBase`.
+- Respect permission and safety-hook denials. Stop the blocked operation; never
+  change syntax, wrappers or tools to evade it. An executor needs policy approval,
+  not merely a launcher that escapes command-string matching.
 - Scratch belongs to one unique run under the cleanup scratch root. Other runs,
   `%TEMP%\claude`, `%TEMP%\opencode`, and legacy cleanup scratch are excluded.
   Never delete a shared scratch root to clean up one run.
@@ -147,7 +151,11 @@ Retain exact paths in private evidence; share only the metadata the user request
 - Use npm's own `_cacache` cleanup. Never delete the npm-cache or `_npx` root;
   only exact immediate `_npx` children passing refreshed age/parent/liveness gates.
 - Browser/app caches require the owner to be closed. Preserve roots for contents-
-  only actions, skip locks, and never retry harder by killing their holders.
+  only actions, refresh owner/process and live-path checks before execution, and
+  leave uncertain owners review-only. Incomplete evidence stays review-only.
+  Open or locked files can still be unlinked on Unix; locks are not a safety veto.
+  Report access failures/partial results and
+  never retry harder by killing holders or changing permissions.
 
 ### Windows logs and component maintenance
 

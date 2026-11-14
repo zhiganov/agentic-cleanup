@@ -210,10 +210,11 @@ Which categories to clean? Enter numbers (e.g., 1,2,3), all, or none to cancel.
 - **Keeps newest versions.** Squirrel cleanup only removes old `app-*` directories.
 - **Respects active projects.** Only cleans node_modules and build artifacts in projects with no git activity in 4+ weeks.
 - **Protects registered MCP projects.** The structured path excludes `node_modules` owned by static Claude Code or OpenCode V2 local-server registrations and refreshes ownership before execution.
-- **Protects Claude Code data.** Never touches memories, commands, skills, settings, or history.
+- **Protects Claude Code data.** Never touches memories, commands, skills, settings, conversation/session logs, or file-edit history, regardless of age.
 - **Safe Docker cleanup.** Only prunes dangling images and build cache — never removes stopped containers or volumes.
 - **Single UAC prompt.** Elevated categories (system logs, VS cache, kernel reports) are batched into one admin PowerShell invocation.
-- **Browser/app-safe.** Warns to close apps before cleaning caches; locked files are skipped automatically.
+- **Browser/app-safe.** Requires owners to be closed and refreshes owner/process and live-path checks before selected cache cleanup. Open/locked files are not a reliable deletion veto on Unix; uncertain owners stay review-only, cache roots are preserved, and partial/access failures are reported.
+- **Respects permission denials.** Stop the blocked operation. Never change syntax, wrappers or tools to evade a safety hook or unresolved permission denial.
 - **Skips missing tools.** If Docker, pip, pnpm, yarn, or WizTree isn't installed, gracefully falls back or skips.
 - **Handles failures gracefully.** If one category fails, continues with the rest and reports what failed.
 
