@@ -332,12 +332,20 @@ class MacDiscovery(unittest.TestCase):
         self.assertIn("space is unknown", rendered.stdout)
         snapshot = self.root / "space.json"
         observed = subprocess.run([sys.executable, str(payload / "scripts/cleanup/macos_report.py"),
-                                  "snapshot", "--path", str(self.work), "--output", str(snapshot)],
+                                  "snapshot", "--path", "/", "--path", str(self.work), "--output", str(snapshot)],
                                   env=env, capture_output=True, text=True, timeout=20)
         self.assertEqual(observed.returncode, 0, observed.stderr)
         space = json.loads(snapshot.read_text())["filesystemSpace"]
-        self.assertEqual(space["scopes"][0]["status"], "observed")
-        self.assertEqual(space["filesystems"][0]["identityStatus"], "verified-device")
+        expected_ids = set()
+        for path in (Path("/"), self.work):
+            fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                expected_ids.add(str(os.fstatvfs(fd).f_fsid))
+            finally:
+                os.close(fd)
+        self.assertEqual({row["filesystemId"] for row in space["filesystems"]}, expected_ids)
+        self.assertTrue(all(row["status"] == "observed" for row in space["scopes"]))
+        self.assertTrue(all(row["identityStatus"] == "verified-device" for row in space["filesystems"]))
         self.assertEqual(stat.S_IMODE(snapshot.stat().st_mode), 0o600)
 
 

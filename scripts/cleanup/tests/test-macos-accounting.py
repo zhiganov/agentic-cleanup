@@ -43,6 +43,12 @@ class SpaceAccounting(unittest.TestCase):
             if broken == "timeout":
                 raise TimeoutError("sensitive-fixture-never-printed")
             if args[0] == "/bin/df":
+                if broken == "df-exit":
+                    return 7, "sensitive-fixture-never-printed"
+                if broken == "df-malformed":
+                    return 0, "sensitive-fixture-never-printed"
+                if broken == "first-command-failed" and len(calls) == 1:
+                    return 7, "sensitive-fixture-never-printed"
                 return 0, "Filesystem 1024-blocks Used Available Capacity Mounted on\n" + nodes[paths[args[-1]]] + " 999 1 2 1% /mount with spaces\n"
             device = next(key for key, node in nodes.items() if node == args[-1])
             data = {"DeviceNode": args[-1], "VolumeUUID": UUIDS[device - 1],
@@ -56,21 +62,106 @@ class SpaceAccounting(unittest.TestCase):
                             APFSContainerFree=1500000)
             if broken == "metadata-device":
                 data["DeviceNode"] = "/dev/disk99"
+            if broken == "metadata-exit":
+                return 8, "sensitive-fixture-never-printed"
+            if broken == "missing-uuid":
+                data.pop("VolumeUUID")
+            if broken == "invalid-uuid":
+                data["VolumeUUID"] = "-" * 36
+            if broken == "native-error":
+                raise PermissionError(13, "sensitive-fixture-never-printed")
             return (0, "not a plist") if broken == "malformed" else (0, plistlib.dumps(data).decode())
-        def device_stat(node, **kwargs):
+        original_stat = os.stat
+        def device_stat(node, *args, **kwargs):
+            if node not in nodes.values():
+                return original_stat(node, *args, **kwargs)
             return SimpleNamespace(st_mode=stat.S_IFBLK, st_rdev=99 if broken == "rdev" else
                                    next(key for key, value in nodes.items() if value == node))
         def statvfs(fd):
             if broken == "allocation-api":
                 raise OSError("fixture")
-            return SimpleNamespace(f_frsize=4096, f_bsize=4096, f_blocks=100,
-                                   f_bfree=30, f_bavail=20 if fd != 3 else 50)
+            values = SimpleNamespace(f_fsid=fd, f_frsize=4096, f_bsize=4096, f_blocks=100,
+                                     f_bfree=30, f_bavail=20 if fd != 3 else 50)
+            if broken == "missing-fsid" or broken == "first-missing-fsid" and fd == 1:
+                del values.f_fsid
+            return values
         self.addCleanup(patch.stopall)
         patch.object(report.metadata, "root_scope", scope).start()
-        patch("os.fstat", side_effect=lambda fd: SimpleNamespace(st_dev=fd)).start()
+        patch("os.fstat", side_effect=lambda fd: SimpleNamespace(
+            st_dev=2 if broken in ("shared-inode-device", "first-command-failed", "first-missing-fsid")
+            and fd in (1, 2) else fd)).start()
         patch("os.fstatvfs", side_effect=statvfs).start()
         patch("os.stat", side_effect=device_stat).start()
         return report.Filesystems(run=run, limit=limit), calls
+
+    def test_system_data_with_same_inode_device_keep_distinct_mounted_filesystems(self):
+        collector, calls = self.collector("shared-inode-device")
+        collector.observe("/", expected_device=2)
+        collector.observe("/System/Volumes/Data", expected_device=2)
+        data = collector.evidence()
+        self.assertEqual(len(data["filesystems"]), 2)
+        self.assertEqual([row["filesystemId"] for row in data["filesystems"]], ["1", "2"])
+        self.assertTrue(all(row["identityStatus"] == "verified-device" for row in data["filesystems"]))
+        self.assertNotEqual(data["filesystems"][0]["volumeUuid"], data["filesystems"][1]["volumeUuid"])
+        self.assertEqual(data["sharedContainers"][0]["filesystemIds"], ["1", "2"])
+        self.assertEqual(len(calls), 4)
+
+    def test_failed_first_lookup_never_promotes_unknown_identity_or_poisons_data(self):
+        collector, calls = self.collector("first-command-failed")
+        first = collector.observe("/")
+        collector.observe("/")  # same actual filesystem: preserve gap, no retry
+        data = collector.observe("/System/Volumes/Data")
+        self.assertNotEqual(first, data)
+        self.assertEqual(collector.volumes[first]["identityStatus"], "unknown")
+        self.assertEqual(collector.volumes[data]["identityStatus"], "verified-device")
+        self.assertEqual(collector.scopes[1]["identityStatus"], "unknown")
+        self.assertEqual(len(calls), 3)
+        delta = report.net_changes(collector.evidence(), collector.evidence())
+        self.assertTrue(all(row["observedNetChangeBytes"] is None for row in delta["changes"]))
+
+    def test_missing_first_filesystem_id_is_isolated_not_cached_by_inode_device(self):
+        collector, calls = self.collector("first-missing-fsid")
+        first = collector.observe("/")
+        second = collector.observe("/System/Volumes/Data")
+        self.assertTrue(first.startswith("unknown-"))
+        self.assertEqual(second, "2")
+        self.assertIsNone(collector.volumes[first]["deviceNumber"])
+        self.assertIsNone(collector.volumes[first]["volumeUuid"])
+        self.assertEqual(collector.volumes[second]["identityStatus"], "verified-device")
+        self.assertEqual(len(calls), 2)
+
+    def test_stage_diagnostics_are_safe_and_specific(self):
+        cases = {"df-exit": ("device-discovery", "command-failed"),
+                 "df-malformed": ("device-discovery", "unsupported-device-output"),
+                 "rdev": ("device-verification", "block-device-fsid-mismatch"),
+                 "metadata-exit": ("device-metadata", "command-failed"),
+                 "malformed": ("plist-parsing", "malformed-output"),
+                 "metadata-device": ("identity-fields", "device-node-mismatch-or-missing"),
+                 "missing-uuid": ("identity-fields", "volume-uuid-missing-or-invalid"),
+                 "invalid-uuid": ("identity-fields", "volume-uuid-missing-or-invalid"),
+                 "native-error": ("device-metadata", "native-error"),
+                 "timeout": ("device-discovery", "command-timeout"),
+                 "missing-fsid": ("filesystem-id", "missing-or-invalid-fsid")}
+        for failure, (stage, code) in cases.items():
+            with self.subTest(failure=failure):
+                collector, calls = self.collector(failure)
+                collector.observe("/")
+                data = collector.evidence()
+                item = data["filesystems"][0]
+                self.assertIn({"stage": stage, "code": code},
+                              [{key: row[key] for key in ("stage", "code")} for row in item["diagnostics"]])
+                self.assertNotEqual(item["identityStatus"], "verified-device")
+                text = report.render({"purpose": "read-only-macos-space-snapshot", "filesystemSpace": data})
+                self.assertIn(stage, text)
+                self.assertIn(code, text)
+                self.assertNotIn("sensitive-fixture", text)
+                self.assertNotIn("sensitive-fixture", json.dumps(data))
+                for row in item["diagnostics"]:
+                    self.assertLessEqual(set(row), {"stage", "code", "exitCode", "errno"})
+                if failure == "native-error":
+                    self.assertEqual(item["diagnostics"][0]["errno"], 13)
+                self.assertLessEqual(len(calls), 2)
+                patch.stopall()
 
     def test_system_data_share_capacity_external_is_separate_no_aggregate(self):
         collector, calls = self.collector()

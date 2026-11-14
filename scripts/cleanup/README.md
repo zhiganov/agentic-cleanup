@@ -129,10 +129,20 @@ uniquely reclaimable; APFS clone/snapshot sharing remains unknown.
 records bounded per-device observations (repeat `--path`, at most 32 paths,
 16 devices, 15 seconds). The scanner uses the same collector for baseline and
 target filesystem association. `fstatvfs` on a pinned descriptor measures bytes;
-`df -Pk` discovers a block device whose `st_rdev` must match the directory's
-`st_dev` before `diskutil info -plist` supplies allowlisted identity/container
+`df -Pk` discovers a block device whose `st_rdev` must match the mounted-filesystem
+ID from the pinned descriptor's `fstatvfs.f_fsid` before `diskutil info -plist` supplies allowlisted identity/container
 metadata. Unsupported devices or identity failures remain explicit gaps. No
 mount/unmount, snapshot enumeration, purge, or filesystem mutation is performed.
+
+APFS System/Data paths can share file/inode `st_dev` while their mounted
+filesystem IDs differ. Cache by `f_fsid`, never by `st_dev`; the latter is retained
+only as an inode-device observation and expected-root check. Missing `f_fsid`
+gets an isolated unknown observation, never a guessed volume association.
+Each scope reports byte-observation status separately from identity status.
+Failed cached identities stay unknown without retries. Safe diagnostics identify
+the failed stage/code and optional numeric exit/errno; raw plists, command output,
+volume names and exception text are excluded. Missing/invalid UUIDs cannot
+produce verified identities or signed deltas.
 
 No aggregate capacity/free-space total is emitted. System/Data observations may
 share a container, while external devices remain separate. APFS quota/reserve,

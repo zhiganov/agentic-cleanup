@@ -34,7 +34,7 @@ def chronological(start, end):
 
 
 class Filesystems:
-    """Observe each device once per snapshot. Never sum APFS volume capacity."""
+    """Observe each mounted filesystem once, not each inode st_dev."""
     def __init__(self, run=command, check=lambda: None, limit=16):
         self.run, self.check, self.limit = run, check, limit
         self.volumes, self.scopes = {}, []
@@ -48,7 +48,18 @@ class Filesystems:
                 device = os.fstat(pinned.descriptor).st_dev
                 if expected_device is not None and device != expected_device:
                     raise metadata.BoundarySkipped("changed-skipped")
-                key = str(device)
+                self.check()
+                values, error_number = None, None
+                try:
+                    values = os.fstatvfs(pinned.descriptor)
+                except OSError as error:
+                    error_number = error.errno
+                # Darwin can expose the same vnode st_dev for System/Data while
+                # fstatvfs's mounted-filesystem IDs differ. Never cache by st_dev.
+                filesystem = integer(getattr(values, "f_fsid", None))
+                if filesystem == 0:
+                    filesystem = None
+                key = str(filesystem) if filesystem is not None else f"unknown-{len(self.volumes)}"
                 scope["filesystemId"] = key
                 if key not in self.volumes:
                     self.check()
@@ -56,8 +67,9 @@ class Filesystems:
                         scope["status"] = "filesystem-limit"
                         scope["filesystemId"] = None
                         return None
-                    self.volumes[key] = self.sample(pinned, device)
+                    self.volumes[key] = self.sample(pinned, device, values, filesystem, error_number)
                 scope["status"] = self.volumes[key]["status"]
+                scope["identityStatus"] = self.volumes[key]["identityStatus"]
                 return key
         except metadata.BudgetExceeded as error:
             scope["status"] = str(error)
@@ -69,16 +81,22 @@ class Filesystems:
             scope["status"] = "inaccessible"
         return None
 
-    def sample(self, pinned, device):
-        result = {"filesystemId": str(device), "deviceNumber": device, "status": "unknown",
+    def sample(self, pinned, device, values, filesystem, error_number):
+        result = {"filesystemId": str(filesystem) if filesystem is not None else f"unknown-{len(self.volumes)}",
+                  "deviceNumber": filesystem, "inodeDeviceNumber": device,
+                  "filesystemIdentityMethod": "fstatvfs-f-fsid", "status": "unknown",
                   "observedAt": now(), "anchor": pinned.path, "method": "fstatvfs-pinned-directory",
                   "totalBytes": None, "availableBytes": None, "freeBytes": None,
                   "volumeUuid": None, "deviceNode": None, "mountPoint": None,
                   "filesystemType": None, "apfsContainer": None, "volumeGroup": None,
                   "containerCapacityBytes": None, "containerFreeBytes": None,
-                  "sharing": "unknown", "identityStatus": "unknown", "failures": []}
+                  "sharing": "unknown", "identityStatus": "unknown", "failures": [], "diagnostics": []}
+        def diagnostic(stage, code, **numbers):
+            result["diagnostics"].append({"stage": stage, "code": code,
+                **{key: value for key, value in numbers.items() if type(value) is int}})
         try:
-            values = os.fstatvfs(pinned.descriptor)
+            if values is None:
+                raise ValueError("space-api-failed")
             unit = values.f_frsize or values.f_bsize
             if unit <= 0 or min(values.f_blocks, values.f_bfree, values.f_bavail) < 0:
                 raise ValueError("invalid-space-observation")
@@ -86,29 +104,48 @@ class Filesystems:
                           availableBytes=values.f_bavail * unit, status="observed")
         except (OSError, ValueError):
             result["failures"].append("space-unavailable")
+            diagnostic("space-observation", "native-error" if values is None else "invalid-values", errno=error_number)
+        if filesystem is None:
+            result["failures"].append("filesystem-identity-unavailable")
+            diagnostic("filesystem-id", "missing-or-invalid-fsid")
+            return result
+        stage = "device-discovery"
         try:
             # df discovers a device, never the byte measurement. Validate its rdev
-            # against the pinned directory before asking diskutil about that device.
+            # against the pinned mounted-filesystem ID, not the vnode's st_dev.
             self.check()
             code, text = self.run(["/bin/df", "-Pk", pinned.path], seconds=3,
                                   env={**os.environ, "LC_ALL": "C"})
             lines = text.splitlines()
             node = lines[-1].split()[0] if lines else ""
-            if code or not re.fullmatch(r"/dev/disk\d+(?:s\d+)*", node):
-                raise ValueError("device-unresolved")
+            if code:
+                diagnostic(stage, "command-failed", exitCode=code)
+                raise ValueError()
+            if not re.fullmatch(r"/dev/disk\d+(?:s\d+)*", node):
+                diagnostic(stage, "unsupported-device-output")
+                raise ValueError()
+            stage = "device-verification"
             info = os.stat(node, follow_symlinks=False)
-            if not stat.S_ISBLK(info.st_mode) or info.st_rdev != device:
-                raise ValueError("device-mismatch")
+            if not stat.S_ISBLK(info.st_mode) or info.st_rdev != filesystem:
+                diagnostic(stage, "block-device-fsid-mismatch")
+                raise ValueError()
             self.check()
+            stage = "device-metadata"
             code, text = self.run(["/usr/sbin/diskutil", "info", "-plist", node], seconds=3)
-            data = plistlib.loads(text.encode()) if not code else None
+            if code:
+                diagnostic(stage, "command-failed", exitCode=code)
+                raise ValueError()
+            stage = "plist-parsing"
+            data = plistlib.loads(text.encode())
+            stage = "identity-fields"
             if not isinstance(data, dict) or data.get("DeviceNode") != node:
-                raise ValueError("device-metadata-mismatch")
+                diagnostic(stage, "device-node-mismatch-or-missing")
+                raise ValueError()
             # Do not retain disk names, raw plists, or arbitrary diagnostic text.
             result["deviceNode"] = node
             for source, target in (("VolumeUUID", "volumeUuid"), ("APFSVolumeGroupID", "volumeGroup")):
                 value = data.get(source)
-                if isinstance(value, str) and re.fullmatch(r"[0-9A-Fa-f-]{36}", value):
+                if isinstance(value, str) and re.fullmatch(r"[0-9A-Fa-f]{8}-(?:[0-9A-Fa-f]{4}-){3}[0-9A-Fa-f]{12}", value):
                     result[target] = value.upper()
             mount = data.get("MountPoint")
             if isinstance(mount, str) and mount.startswith("/"):
@@ -121,10 +158,20 @@ class Filesystems:
                               containerCapacityBytes=integer(data.get("APFSContainerSize")),
                               containerFreeBytes=integer(data.get("APFSContainerFree")))
             result["identityStatus"] = "verified-device" if result["volumeUuid"] else "device-only"
+            if not result["volumeUuid"]:
+                result["failures"].append("volume-uuid-unavailable")
+                diagnostic(stage, "volume-uuid-missing-or-invalid")
         except metadata.BudgetExceeded as error:
             result["failures"].append(str(error))
-        except (OSError, ValueError, IndexError, TimeoutError, subprocess.SubprocessError):
+            diagnostic(stage, "budget-exhausted")
+        except (TimeoutError, subprocess.TimeoutExpired):
             result["failures"].append("filesystem-identity-unavailable")
+            diagnostic(stage, "command-timeout")
+        except (OSError, ValueError, IndexError, subprocess.SubprocessError) as error:
+            result["failures"].append("filesystem-identity-unavailable")
+            if not result["diagnostics"] or result["diagnostics"][-1]["stage"] != stage:
+                diagnostic(stage, "native-error" if isinstance(error, OSError) else "malformed-output",
+                           errno=getattr(error, "errno", None))
         return result
 
     def evidence(self):
@@ -215,9 +262,12 @@ def render(report, before=None):
                          f"free {size(volume.get('containerFreeBytes'))}. Do not add volume capacities/free space.")
         if volume.get("failures"):
             lines.append("  Gaps: " + safe(", ".join(volume["failures"])))
+        if volume.get("diagnostics"):
+            lines.append("  Failure stages: " + safe(json.dumps(volume["diagnostics"], sort_keys=True)))
     for scope in space.get("scopes", []):
         lines.append(f"- Space scope {safe(scope['path'])}: filesystem {safe(scope['filesystemId'])}; "
-                     f"{safe(scope['status'])}" + (" (unknown, not zero)." if scope["status"] != "observed" else "."))
+                     f"{safe(scope['status'])}; identity {safe(scope.get('identityStatus', 'unknown'))}" +
+                     (" (unknown, not zero)." if scope["status"] != "observed" else "."))
     lines.extend("- " + text for text in space.get("limitations", []))
     if purpose == "read-only-macos-discovery":
         lines.extend(["", "## Coverage", "Bounded scopes, not a full-drive census.",
